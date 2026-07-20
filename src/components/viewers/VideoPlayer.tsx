@@ -20,6 +20,7 @@ import {
   type VideoShortcuts,
 } from "@/lib/shortcuts";
 import { formatDuration } from "@/lib/utils";
+import { FullscreenPortal } from "./FullscreenPortal";
 
 export interface PlaylistItem {
   id: string;
@@ -414,7 +415,7 @@ export function VideoPlayer({
   ].join(" · ");
 
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col bg-black">
+    <FullscreenPortal className="fixed inset-0 z-[200] flex flex-col bg-black">
       <header className="flex shrink-0 items-center justify-between gap-3 px-4 py-3 text-white/90">
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{title}</p>
@@ -602,6 +603,6 @@ export function VideoPlayer({
           )}
         </div>
       </div>
-    </div>
+    </FullscreenPortal>
   );
 }

@@ -46,19 +46,36 @@ function cleanTitle(title: string): string {
 }
 
 /**
- * Guess series title from a file path by looking at parent folder
+ * Guess series title from a file path by looking at parent folder(s)
  * or stripping episode/chapter numbers.
+ * 会沿目录向上跳过「话/卷」文件夹，直到 libraryRoot。
  */
-export function inferSeriesTitle(filePath: string, fileName: string): ParsedName {
-  const pathParts = filePath.replace(/\\/g, "/").split("/");
-  const parent = pathParts[pathParts.length - 2] || "";
+export function inferSeriesTitle(
+  filePath: string,
+  fileName: string,
+  libraryRoot?: string
+): ParsedName {
+  const normalizedRoot = libraryRoot
+    ? libraryRoot.replace(/\\/g, "/").replace(/\/$/, "")
+    : null;
+  let dir = filePath.replace(/\\/g, "/").replace(/\/[^/]+$/, "");
 
-  // Prefer parent folder if it looks like a series name
-  if (parent && !isLikelyVolumeFolder(parent) && parent !== "." && !parent.match(/^[A-Za-z]:$/)) {
-    const fromParent = parseMediaName(parent);
-    if (fromParent.title && fromParent.title !== "未命名") {
-      return fromParent;
+  while (dir && dir !== "." && dir !== "/" && dir !== normalizedRoot) {
+    const parentName = dir.split("/").pop() || "";
+    if (
+      parentName &&
+      parentName !== "." &&
+      !parentName.match(/^[A-Za-z]:$/) &&
+      !isLikelyVolumeFolder(parentName)
+    ) {
+      const fromParent = parseMediaName(parentName);
+      if (fromParent.title && fromParent.title !== "未命名") {
+        return fromParent;
+      }
     }
+    const next = dir.replace(/\/[^/]+$/, "");
+    if (next === dir) break;
+    dir = next;
   }
 
   const fromFile = parseMediaName(fileName);
@@ -72,7 +89,11 @@ export function inferSeriesTitle(filePath: string, fileName: string): ParsedName
 }
 
 function isLikelyVolumeFolder(name: string): boolean {
-  return /^(vol|volume|ch|chapter|ep|episode|第?\d+|disc\s*\d+)/i.test(name.trim());
+  const n = name.trim();
+  if (/^(vol|volume|ch|chapter|ep|episode|disc)\.?\s*\d+/i.test(n)) return true;
+  if (/^第?\s*\d+\s*[话話卷章集话]/u.test(n)) return true;
+  if (/^\d{1,4}([\-_.].*)?$/i.test(n)) return true;
+  return false;
 }
 
 export function naturalCompare(a: string, b: string): number {

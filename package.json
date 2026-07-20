@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "本地一体化资源管理器 — 漫画、条漫、小说、视频、音乐与照片，私有、离线、自动整理",
+  "author": "JerryDoko",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -15,7 +16,10 @@
     "resources:build": "bash scripts/start.sh build",
     "lm": "bash scripts/start.sh dev",
     "desktop": "node scripts/desktop.js dev",
-    "electron": "electron electron/main.js"
+    "electron": "electron electron/main.js",
+    "pack:prepare": "node scripts/prepare-mac-pack.mjs",
+    "dist:mac": "electron-builder --mac --publish never",
+    "release:mac": "npm run pack:prepare && npm run dist:mac"
   },
   "main": "electron/main.js",
   "dependencies": {
@@ -47,10 +51,65 @@
     "@types/sharp": "^0.32.0",
     "@types/uuid": "^11.0.0",
     "drizzle-kit": "^0.31.10",
+    "electron": "^36.4.0",
+    "electron-builder": "^26.0.12",
     "eslint": "^9",
     "eslint-config-next": "15.1.6",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
     "typescript": "^5"
+  },
+  "build": {
+    "appId": "com.jerrydoko.resourcesmanager",
+    "productName": "Resources Manager",
+    "copyright": "Copyright © 2026 JerryDoko",
+    "directories": {
+      "output": "release",
+      "buildResources": "build-resources"
+    },
+    "afterPack": "./scripts/after-pack.cjs",
+    "npmRebuild": false,
+    "files": [
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [],
+    "mac": {
+      "category": "public.app-category.entertainment",
+      "icon": "build-resources/icon.icns",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "identity": null
+    },
+    "dmg": {
+      "title": "Resources Manager",
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "asar": true
   }
 }

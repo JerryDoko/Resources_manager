@@ -88,28 +88,51 @@ export function SettingsPanel() {
     }
   };
 
+  const parseJsonSafe = async (res: Response) => {
+    const text = await res.text();
+    if (!text) return {};
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error(
+        res.ok
+          ? "服务器返回了无法解析的响应"
+          : `请求失败 (${res.status})，可能是扫描超时或服务异常`
+      );
+    }
+  };
+
   const addFolder = async () => {
     if (!path.trim()) return;
     setScanning(true);
-    setScanMsg("正在扫描…");
+    setScanMsg("正在递归扫描子文件夹…");
     try {
       const res = await fetch("/api/folders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "add", path: path.trim(), mediaType: type }),
-        signal: AbortSignal.timeout(120000),
+        signal: AbortSignal.timeout(600000),
       });
-      const data = await res.json();
+      const data = await parseJsonSafe(res);
       if (!res.ok) {
         setScanMsg(data.error || "添加失败");
         return;
       }
+      const errHint =
+        data.scan?.errors?.length > 0 ? ` · 警告 ${data.scan.errors.length}` : "";
       setScanMsg(
-        `完成：扫描 ${data.scan.scanned} · 新增 ${data.scan.added} · 系列 ${data.scan.seriesCreated}`
+        `完成：扫描 ${data.scan.scanned} · 新增 ${data.scan.added} · 系列 ${data.scan.seriesCreated}${errHint}`
       );
       setPath("");
       await load();
       await refresh();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setScanMsg(
+        /aborted|timeout|TimeoutError/i.test(msg)
+          ? "扫描超时：文件夹太大。请稍后再点「全库重新扫描」，或拆成更小的目录添加"
+          : `添加失败：${msg}`
+      );
     } finally {
       setScanning(false);
     }
@@ -117,19 +140,26 @@ export function SettingsPanel() {
 
   const rescan = async () => {
     setScanning(true);
-    setScanMsg("全库扫描中…");
+    setScanMsg("全库扫描中（含子文件夹）…");
     try {
       const res = await fetch("/api/folders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "scan" }),
-        signal: AbortSignal.timeout(300000),
+        signal: AbortSignal.timeout(600000),
       });
-      const data = await res.json();
+      const data = await parseJsonSafe(res);
       setScanMsg(
         `完成：扫描 ${data.scan.scanned} · 新增 ${data.scan.added} · 系列 ${data.scan.seriesCreated}`
       );
       await refresh();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setScanMsg(
+        /aborted|timeout|TimeoutError/i.test(msg)
+          ? "全库扫描超时，请稍后重试或缩小库目录"
+          : `扫描失败：${msg}`
+      );
     } finally {
       setScanning(false);
     }

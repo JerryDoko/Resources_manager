@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { Star, Check } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useLibrary, type SeriesCard } from "@/lib/store";
 import { cn, formatDate } from "@/lib/utils";
 
@@ -66,8 +65,7 @@ function SeriesThumb({ series }: { series: SeriesCard }) {
 }
 
 export function SeriesGrid() {
-  const router = useRouter();
-  const { series, loading, selectedIds, toggleSelect, mediaType } = useLibrary();
+  const { series, loading, selectedIds, toggleSelect, mediaType, openSeriesTab } = useLibrary();
 
   if (loading) {
     return (
@@ -112,7 +110,13 @@ export function SeriesGrid() {
                 : "border-[var(--line)] hover:-translate-y-0.5 hover:shadow-lg hover:shadow-teal-900/5"
             )}
             style={{ animationDelay: `${Math.min(idx, 20) * 30}ms` }}
-            onClick={() => router.push(`/series/${s.id}`)}
+            onClick={() =>
+              openSeriesTab({
+                seriesId: s.id,
+                title: s.title,
+                mediaType: s.mediaType,
+              })
+            }
             onContextMenu={(e) => {
               e.preventDefault();
               toggleSelect(s.id);

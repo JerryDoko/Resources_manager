@@ -14,7 +14,20 @@ function getExt(file: string): string {
   return path.extname(file).toLowerCase();
 }
 
-function walkDir(dir: string, maxDepth = 8, depth = 0): string[] {
+function isDirEntry(entry: fs.Dirent, full: string): boolean {
+  if (entry.isDirectory()) return true;
+  // 跟随指向目录的符号链接（访达里常见）
+  if (entry.isSymbolicLink()) {
+    try {
+      return fs.statSync(full).isDirectory();
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+function walkDir(dir: string, maxDepth = 32, depth = 0): string[] {
   if (depth > maxDepth) return [];
   const results: string[] = [];
   let entries: fs.Dirent[];
@@ -25,12 +38,16 @@ function walkDir(dir: string, maxDepth = 8, depth = 0): string[] {
   }
 
   for (const entry of entries) {
-    if (entry.name.startsWith(".")) continue;
+    if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
     const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
+    if (isDirEntry(entry, full)) {
       results.push(...walkDir(full, maxDepth, depth + 1));
-    } else if (entry.isFile()) {
-      results.push(full);
+    } else if (entry.isFile() || entry.isSymbolicLink()) {
+      try {
+        if (fs.statSync(full).isFile()) results.push(full);
+      } catch {
+        /* 忽略不可读文件 */
+      }
     }
   }
   return results;
@@ -72,24 +89,30 @@ export function isEpisodeOrVolumeFolder(name: string): boolean {
  * Resolve series folder from an image-containing folder.
  * Series > Episode > images  → series = Series
  * Series > images            → series = Series
+ * 会沿目录向上跳过多层「话/卷」文件夹。
  */
 export function resolveSeriesFromImageFolder(
   imageFolder: string,
   libraryRoot: string
 ): { seriesFolder: string; episodeLabel: string | null } {
-  const folderName = path.basename(imageFolder);
-  const parent = path.dirname(imageFolder);
+  const root = libraryRoot.replace(/\/$/, "");
+  let current = imageFolder;
+  let episodeLabel: string | null = null;
 
-  if (
-    isEpisodeOrVolumeFolder(folderName) &&
-    parent !== libraryRoot &&
-    parent !== "." &&
-    !isEpisodeOrVolumeFolder(path.basename(parent))
-  ) {
-    return { seriesFolder: parent, episodeLabel: folderName };
+  while (current !== root && current !== "." && current !== "/") {
+    const name = path.basename(current);
+    const parent = path.dirname(current);
+    if (parent === current) break;
+
+    if (isEpisodeOrVolumeFolder(name) && parent !== root) {
+      if (!episodeLabel) episodeLabel = name;
+      current = parent;
+      continue;
+    }
+    break;
   }
 
-  return { seriesFolder: imageFolder, episodeLabel: null };
+  return { seriesFolder: current, episodeLabel };
 }
 
 export async function scanFolder(
@@ -125,7 +148,15 @@ export async function scanFolder(
 
     for (const filePath of archiveAndOthers) {
       try {
-        const seriesId = await upsertFileAsItem(db, filePath, mediaType, now, result);
+        const seriesId = await upsertFileAsItem(
+          db,
+          filePath,
+          mediaType,
+          now,
+          result,
+          folderPath,
+          false
+        );
         if (seriesId) touchedSeries.add(seriesId);
       } catch (e) {
         result.errors.push(`${filePath}: ${e instanceof Error ? e.message : String(e)}`);
@@ -172,8 +203,7 @@ export async function scanFolder(
           const baseTitle = path.basename(img, path.extname(img));
           const title = episodeLabel ? `${episodeLabel} · ${baseTitle}` : baseTitle;
 
-          const thumb = await ensureItemThumbnail(itemId, img);
-
+          // 扫描阶段跳过逐张缩略图，避免大库超时；展示时再懒生成
           db.insert(schema.mediaItems)
             .values({
               id: itemId,
@@ -187,7 +217,7 @@ export async function scanFolder(
                 mediaType === "photo"
                   ? new Date(stat.mtimeMs).toISOString().slice(0, 10)
                   : null,
-              thumbnailPath: thumb,
+              thumbnailPath: null,
               createdAt: now,
               updatedAt: now,
             })
@@ -205,7 +235,15 @@ export async function scanFolder(
       );
       for (const img of rootImages) {
         try {
-          const seriesId = await upsertFileAsItem(db, img, mediaType, now, result);
+          const seriesId = await upsertFileAsItem(
+            db,
+            img,
+            mediaType,
+            now,
+            result,
+            folderPath,
+            false
+          );
           if (seriesId) touchedSeries.add(seriesId);
         } catch (e) {
           result.errors.push(`${img}: ${e instanceof Error ? e.message : String(e)}`);
@@ -215,7 +253,15 @@ export async function scanFolder(
   } else {
     for (const filePath of matched) {
       try {
-        const seriesId = await upsertFileAsItem(db, filePath, mediaType, now, result);
+        const seriesId = await upsertFileAsItem(
+          db,
+          filePath,
+          mediaType,
+          now,
+          result,
+          folderPath,
+          false
+        );
         if (seriesId) touchedSeries.add(seriesId);
       } catch (e) {
         result.errors.push(`${filePath}: ${e instanceof Error ? e.message : String(e)}`);
@@ -235,7 +281,9 @@ async function upsertFileAsItem(
   filePath: string,
   mediaType: MediaType,
   now: number,
-  result: ScanResult
+  result: ScanResult,
+  libraryRoot?: string,
+  makeThumb = true
 ): Promise<string | null> {
   const existing = db
     .select()
@@ -245,7 +293,7 @@ async function upsertFileAsItem(
 
   if (existing) {
     result.updated++;
-    if (!existing.thumbnailPath) {
+    if (makeThumb && !existing.thumbnailPath) {
       const thumb = await ensureItemThumbnail(existing.id, filePath);
       if (thumb) {
         db.update(schema.mediaItems)
@@ -258,7 +306,7 @@ async function upsertFileAsItem(
   }
 
   const fileName = path.basename(filePath);
-  const parsed = inferSeriesTitle(filePath, fileName);
+  const parsed = inferSeriesTitle(filePath, fileName, libraryRoot);
   const seriesId = await findOrCreateSeries(db, parsed.title, parsed.author, mediaType, now, result);
   const stat = fs.statSync(filePath);
 
@@ -306,7 +354,7 @@ async function upsertFileAsItem(
       .get()?.c ?? 0;
 
   const itemId = uuid();
-  const thumb = await ensureItemThumbnail(itemId, filePath);
+  const thumb = makeThumb ? await ensureItemThumbnail(itemId, filePath) : null;
 
   db.insert(schema.mediaItems)
     .values({

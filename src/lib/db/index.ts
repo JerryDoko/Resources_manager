@@ -3,12 +3,16 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import fs from "fs";
 import path from "path";
 import * as schema from "./schema";
-
-const DATA_DIR = path.join(process.cwd(), "data");
-const DB_PATH = path.join(DATA_DIR, "library.db");
+import {
+  applyDefaultOnBoot,
+  getActiveProfileId,
+  getProfileDataDir,
+} from "@/lib/profiles";
 
 let _db: ReturnType<typeof drizzle<typeof schema>> | null = null;
 let _sqlite: Database.Database | null = null;
+let _boundProfileId: string | null = null;
+let _booted = false;
 
 function ensureSchema(sqlite: Database.Database) {
   sqlite.exec(`
@@ -89,24 +93,59 @@ function ensureSchema(sqlite: Database.Database) {
   `);
 }
 
-export function getDb() {
-  if (_db) return _db;
+function bootOnce() {
+  if (_booted) return;
+  _booted = true;
+  // 桌面端启动时注入该变量，每次打开应用进入「默认配置」
+  if (process.env.RESOURCES_MANAGER_APPLY_DEFAULT === "1") {
+    try {
+      applyDefaultOnBoot();
+    } catch {
+      /* ignore */
+    }
+  }
+}
 
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+export function closeDb() {
+  if (_sqlite) {
+    try {
+      _sqlite.close();
+    } catch {
+      /* ignore */
+    }
+  }
+  _sqlite = null;
+  _db = null;
+  _boundProfileId = null;
+}
+
+export function getDb() {
+  bootOnce();
+  const profileId = getActiveProfileId();
+  if (_db && _boundProfileId === profileId) return _db;
+
+  if (_db && _boundProfileId !== profileId) {
+    closeDb();
   }
 
-  const thumbsDir = path.join(DATA_DIR, "thumbnails");
+  const dataDir = getProfileDataDir(profileId);
+  const dbPath = path.join(dataDir, "library.db");
+
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+  const thumbsDir = path.join(dataDir, "thumbnails");
   if (!fs.existsSync(thumbsDir)) {
     fs.mkdirSync(thumbsDir, { recursive: true });
   }
 
-  _sqlite = new Database(DB_PATH);
+  _sqlite = new Database(dbPath);
   _sqlite.pragma("journal_mode = WAL");
   _sqlite.pragma("foreign_keys = ON");
   ensureSchema(_sqlite);
 
   _db = drizzle(_sqlite, { schema });
+  _boundProfileId = profileId;
   return _db;
 }
 
@@ -116,11 +155,12 @@ export function getSqlite() {
 }
 
 export function getDataDir() {
-  return DATA_DIR;
+  bootOnce();
+  return getProfileDataDir(getActiveProfileId());
 }
 
 export function getDbPath() {
-  return DB_PATH;
+  return path.join(getDataDir(), "library.db");
 }
 
 export { schema };

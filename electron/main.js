@@ -1,38 +1,44 @@
 /**
- * Resources Manager — 内置浏览器壳
- * 启动 Next 服务 → 打开窗口；关掉全部窗口后停止服务并退出
+ * Resources Manager — Electron 壳
+ * 开发：启动 npm next；打包：启动内置 Node + standalone server
  */
 const { app, BrowserWindow, shell, Menu } = require("electron");
 const { spawn } = require("child_process");
 const http = require("http");
 const path = require("path");
+const fs = require("fs");
+const net = require("net");
 
-const ROOT = path.join(__dirname, "..");
-const PORT = Number(process.env.PORT || 3000);
-const MODE = process.env.LM_MODE || "dev"; // dev | start
-const URL = `http://127.0.0.1:${PORT}`;
+const isPackaged = app.isPackaged;
+const ROOT = isPackaged
+  ? path.join(process.resourcesPath, "server")
+  : path.join(__dirname, "..");
+
+const DEFAULT_PORT = Number(process.env.PORT || 18765);
+let PORT = DEFAULT_PORT;
+let URL = `http://127.0.0.1:${PORT}`;
 
 /** @type {import('child_process').ChildProcess | null} */
 let server = null;
 let quitting = false;
 
-function waitForServer(url, tries = 80) {
-  return new Promise((resolve, reject) => {
+function waitForServer(url, tries = 100) {
+  return new Promise((promiseResolve, promiseReject) => {
     let left = tries;
     const tick = () => {
       const req = http.get(url, (res) => {
         res.resume();
-        resolve();
+        promiseResolve();
       });
       req.on("error", () => {
         left -= 1;
-        if (left <= 0) reject(new Error(`服务未在 ${url} 就绪`));
+        if (left <= 0) promiseReject(new Error(`服务未在 ${url} 就绪`));
         else setTimeout(tick, 400);
       });
       req.setTimeout(800, () => {
         req.destroy();
         left -= 1;
-        if (left <= 0) reject(new Error(`服务未在 ${url} 就绪`));
+        if (left <= 0) promiseReject(new Error(`服务未在 ${url} 就绪`));
         else setTimeout(tick, 400);
       });
     };
@@ -40,16 +46,79 @@ function waitForServer(url, tries = 80) {
   });
 }
 
-function startServer() {
+function findFreePort(preferred) {
+  return new Promise((resolve) => {
+    const tester = net.createServer();
+    tester.once("error", () => {
+      const fallback = net.createServer();
+      fallback.listen(0, "127.0.0.1", () => {
+        const addr = fallback.address();
+        const port = typeof addr === "object" && addr ? addr.port : preferred;
+        fallback.close(() => resolve(port));
+      });
+    });
+    tester.listen(preferred, "127.0.0.1", () => {
+      tester.close(() => resolve(preferred));
+    });
+  });
+}
+
+function dataDir() {
+  return path.join(app.getPath("userData"), "data");
+}
+
+function startPackagedServer() {
+  const serverJs = path.join(ROOT, "server.js");
+  const nodeBin = path.join(process.resourcesPath, "node", "bin", "node");
+  if (!fs.existsSync(serverJs)) {
+    throw new Error(`找不到打包服务: ${serverJs}`);
+  }
+  if (!fs.existsSync(nodeBin)) {
+    throw new Error(`找不到内置 Node: ${nodeBin}`);
+  }
+
+  const env = {
+    ...process.env,
+    PORT: String(PORT),
+    HOSTNAME: "127.0.0.1",
+    BROWSER: "none",
+    RESOURCES_MANAGER_DATA: dataDir(),
+    RESOURCES_MANAGER_APPLY_DEFAULT: "1",
+    NODE_ENV: "production",
+  };
+
+  server = spawn(nodeBin, [serverJs], {
+    cwd: ROOT,
+    env,
+    stdio: "inherit",
+  });
+
+  server.on("exit", (code) => {
+    server = null;
+    if (!quitting) {
+      console.log(`[rm] 服务退出 (code=${code})，关闭应用`);
+      app.quit();
+    }
+  });
+}
+
+function startDevServer() {
+  const MODE = process.env.LM_MODE || "dev";
   const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
   const args =
     MODE === "start"
-      ? ["run", "start", "--", "-p", String(PORT)]
-      : ["run", "dev", "--", "-p", String(PORT)];
+      ? ["run", "start", "--", "-p", String(PORT), "-H", "127.0.0.1"]
+      : ["run", "dev", "--", "-p", String(PORT), "-H", "127.0.0.1"];
 
   server = spawn(npmCmd, args, {
     cwd: ROOT,
-    env: { ...process.env, PORT: String(PORT), BROWSER: "none" },
+    env: {
+      ...process.env,
+      PORT: String(PORT),
+      BROWSER: "none",
+      RESOURCES_MANAGER_DATA: dataDir(),
+      RESOURCES_MANAGER_APPLY_DEFAULT: "1",
+    },
     stdio: "inherit",
     shell: process.platform === "win32",
   });
@@ -57,10 +126,15 @@ function startServer() {
   server.on("exit", (code) => {
     server = null;
     if (!quitting) {
-      console.log(`[lm] Next 进程退出 (code=${code})，关闭应用`);
+      console.log(`[rm] Next 进程退出 (code=${code})，关闭应用`);
       app.quit();
     }
   });
+}
+
+function startServer() {
+  if (isPackaged) startPackagedServer();
+  else startDevServer();
 }
 
 function stopServer() {
@@ -71,7 +145,6 @@ function stopServer() {
     if (process.platform === "win32") {
       spawn("taskkill", ["/pid", String(child.pid), "/f", "/t"]);
     } else {
-      // 杀掉整个进程组，避免 next 子进程残留
       try {
         process.kill(-child.pid, "SIGTERM");
       } catch {
@@ -90,7 +163,7 @@ function stopServer() {
       }, 1500);
     }
   } catch (e) {
-    console.warn("[lm] 停止服务失败", e);
+    console.warn("[rm] 停止服务失败", e);
   }
 }
 
@@ -113,11 +186,13 @@ function createWindow() {
   win.once("ready-to-show", () => win.show());
   win.loadURL(URL);
 
-  // 外链用系统浏览器；同源新窗口仍用内置窗口
   win.webContents.setWindowOpenHandler(({ url }) => {
     try {
       const u = new URL(url);
-      if (u.origin === `http://127.0.0.1:${PORT}` || u.origin === `http://localhost:${PORT}`) {
+      if (
+        u.origin === `http://127.0.0.1:${PORT}` ||
+        u.origin === `http://localhost:${PORT}`
+      ) {
         return {
           action: "allow",
           overrideBrowserWindowOptions: {
@@ -212,8 +287,25 @@ function buildMenu() {
 app.whenReady().then(async () => {
   app.setName("Resources Manager");
   buildMenu();
-  console.log(`[lm] 启动 Next (${MODE}) → ${URL}`);
-  startServer();
+
+  try {
+    fs.mkdirSync(dataDir(), { recursive: true });
+  } catch {
+    /* ignore */
+  }
+
+  PORT = await findFreePort(DEFAULT_PORT);
+  URL = `http://127.0.0.1:${PORT}`;
+
+  console.log(`[rm] 启动服务 → ${URL} (packaged=${isPackaged})`);
+  try {
+    startServer();
+  } catch (e) {
+    console.error(e);
+    app.quit();
+    return;
+  }
+
   try {
     await waitForServer(URL);
   } catch (e) {
@@ -229,10 +321,9 @@ app.whenReady().then(async () => {
   });
 });
 
-// 关掉所有内置窗口 → 停止脚本并退出
 app.on("window-all-closed", () => {
   quitting = true;
-  console.log("[lm] 所有窗口已关闭，停止服务…");
+  console.log("[rm] 所有窗口已关闭，停止服务…");
   stopServer();
   app.quit();
 });

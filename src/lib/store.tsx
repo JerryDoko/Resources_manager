@@ -3,6 +3,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { MediaType, SortBy, TagMatchMode } from "@/lib/types";
 
+export const LIBRARY_TAB_ID = "library";
+
 export interface SeriesCard {
   id: string;
   title: string;
@@ -16,6 +18,16 @@ export interface SeriesCard {
   updatedAt: number;
   tags: { id: string; name: string; color: string }[];
 }
+
+export type WorkspaceTab =
+  | { id: typeof LIBRARY_TAB_ID; kind: "library"; title: string }
+  | {
+      id: string;
+      kind: "series";
+      seriesId: string;
+      title: string;
+      mediaType: string;
+    };
 
 interface LibraryContextValue {
   mediaType: MediaType;
@@ -38,15 +50,28 @@ interface LibraryContextValue {
   clearSelection: () => void;
   refresh: () => Promise<void>;
   refreshTags: () => Promise<void>;
-  activeSeriesId: string | null;
-  setActiveSeriesId: (id: string | null) => void;
   showSettings: boolean;
   setShowSettings: (v: boolean) => void;
   musicQueue: { id: string; title: string; artist?: string } | null;
   setMusicQueue: (t: { id: string; title: string; artist?: string } | null) => void;
+  tabs: WorkspaceTab[];
+  activeTabId: string;
+  activateTab: (id: string) => void;
+  closeTab: (id: string) => void;
+  openSeriesTab: (series: {
+    seriesId: string;
+    title: string;
+    mediaType: string;
+  }) => void;
+  updateTabMeta: (
+    tabId: string,
+    patch: Partial<Pick<Extract<WorkspaceTab, { kind: "series" }>, "title" | "mediaType">>
+  ) => void;
 }
 
 const LibraryContext = createContext<LibraryContextValue | null>(null);
+
+const MAX_SERIES_TABS = 16;
 
 export function LibraryProvider({ children }: { children: React.ReactNode }) {
   const [mediaType, setMediaType] = useState<MediaType>("manga");
@@ -60,13 +85,16 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
   const [tags, setTags] = useState<{ id: string; name: string; color: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [activeSeriesId, setActiveSeriesId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [musicQueue, setMusicQueue] = useState<{
     id: string;
     title: string;
     artist?: string;
   } | null>(null);
+  const [tabs, setTabs] = useState<WorkspaceTab[]>([
+    { id: LIBRARY_TAB_ID, kind: "library", title: "资源库" },
+  ]);
+  const [activeTabId, setActiveTabId] = useState<string>(LIBRARY_TAB_ID);
 
   const refreshTags = useCallback(async () => {
     const res = await fetch("/api/tags", { signal: AbortSignal.timeout(10000) });
@@ -116,6 +144,78 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
 
   const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
 
+  const activateTab = useCallback((id: string) => {
+    setActiveTabId(id);
+  }, []);
+
+  const closeTab = useCallback((id: string) => {
+    if (id === LIBRARY_TAB_ID) return;
+    setTabs((prev) => {
+      const idx = prev.findIndex((t) => t.id === id);
+      if (idx < 0) return prev;
+      const next = prev.filter((t) => t.id !== id);
+      setActiveTabId((current) => {
+        if (current !== id) return current;
+        const fallback = next[Math.max(0, idx - 1)] || next[0];
+        return fallback?.id || LIBRARY_TAB_ID;
+      });
+      return next;
+    });
+  }, []);
+
+  const openSeriesTab = useCallback(
+    (input: { seriesId: string; title: string; mediaType: string }) => {
+      const tabId = `series:${input.seriesId}`;
+      setTabs((prev) => {
+        const existing = prev.find(
+          (t) => t.kind === "series" && t.seriesId === input.seriesId
+        );
+        if (existing) {
+          setActiveTabId(existing.id);
+          return prev.map((t) =>
+            t.id === existing.id
+              ? {
+                  ...t,
+                  title: input.title || t.title,
+                  mediaType: input.mediaType || (t.kind === "series" ? t.mediaType : input.mediaType),
+                }
+              : t
+          );
+        }
+
+        let next = [...prev];
+        const seriesCount = next.filter((t) => t.kind === "series").length;
+        if (seriesCount >= MAX_SERIES_TABS) {
+          const oldest = next.find((t) => t.kind === "series");
+          if (oldest) next = next.filter((t) => t.id !== oldest.id);
+        }
+
+        next.push({
+          id: tabId,
+          kind: "series",
+          seriesId: input.seriesId,
+          title: input.title || "未命名",
+          mediaType: input.mediaType,
+        });
+        setActiveTabId(tabId);
+        return next;
+      });
+    },
+    []
+  );
+
+  const updateTabMeta = useCallback(
+    (
+      tabId: string,
+      patch: Partial<Pick<Extract<WorkspaceTab, { kind: "series" }>, "title" | "mediaType">>
+    ) => {
+      setTabs((prev) =>
+        prev.map((t) => (t.id === tabId && t.kind === "series" ? { ...t, ...patch } : t))
+      );
+    },
+    []
+  );
+
   const value = useMemo(
     () => ({
       mediaType,
@@ -138,12 +238,16 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
       clearSelection,
       refresh,
       refreshTags,
-      activeSeriesId,
-      setActiveSeriesId,
       showSettings,
       setShowSettings,
       musicQueue,
       setMusicQueue,
+      tabs,
+      activeTabId,
+      activateTab,
+      closeTab,
+      openSeriesTab,
+      updateTabMeta,
     }),
     [
       mediaType,
@@ -161,9 +265,14 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
       clearSelection,
       refresh,
       refreshTags,
-      activeSeriesId,
       showSettings,
       musicQueue,
+      tabs,
+      activeTabId,
+      activateTab,
+      closeTab,
+      openSeriesTab,
+      updateTabMeta,
     ]
   );
 

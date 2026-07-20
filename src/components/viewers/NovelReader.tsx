@@ -9,6 +9,7 @@ import {
   BookOpen,
 } from "lucide-react";
 import { NOVEL_ENCODINGS, type NovelEncoding } from "@/lib/encoding-types";
+import { FullscreenPortal } from "./FullscreenPortal";
 
 interface Props {
   itemId: string;
@@ -104,7 +105,7 @@ function Shell({
   toolbar?: React.ReactNode;
 }) {
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col bg-[#f4f0e6]">
+    <FullscreenPortal className="fixed inset-0 z-[200] flex flex-col bg-[#f4f0e6]">
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-[#e5dfd2] px-4 py-3">
         <div className="min-w-0">
           <p className="text-display truncate text-lg font-semibold text-[#2a2418]">
@@ -120,7 +121,7 @@ function Shell({
         </div>
       </header>
       <div className="flex min-h-0 flex-1">{children}</div>
-    </div>
+    </FullscreenPortal>
   );
 }
 

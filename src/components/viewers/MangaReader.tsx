@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { X, ChevronLeft, ChevronRight, Play, Pause } from "lucide-react";
+import { FullscreenPortal } from "./FullscreenPortal";
 
 export interface MangaPageItem {
   id: string;
@@ -20,7 +21,7 @@ interface Props {
 }
 
 const IMAGE_PAGE_RE = /\.(jpe?g|png|webp|gif|avif|apng|bmp)$/i;
-const ANIMATED_RE = /\.(gif|webp|apng)$/i;
+const ANIMATED_RE = /\.(gif|apng)$/i;
 
 function isLikelyAnimated(nameOrPath: string): boolean {
   return ANIMATED_RE.test(nameOrPath);
@@ -42,7 +43,10 @@ export function MangaReader({
   const [error, setError] = useState<string | null>(null);
   const [slideshow, setSlideshow] = useState(false);
   const [intervalSec, setIntervalSec] = useState(3);
+  const [imgReady, setImgReady] = useState(false);
+  const [chromeVisible, setChromeVisible] = useState(true);
   const imgRef = useRef<HTMLImageElement>(null);
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | 0>(0);
 
   const imagePlaylist = useMemo(
     () => playlist.filter((p) => !p.path || IMAGE_PAGE_RE.test(p.path)),
@@ -74,7 +78,6 @@ export function MangaReader({
 
       if (cancelled) return;
 
-      // 文件夹系列：用同系列图片项作为页
       if (imagePlaylist.length > 1 && playlistIndex >= 0) {
         setMode("playlist");
         return;
@@ -92,7 +95,9 @@ export function MangaReader({
       ? archivePages.length
       : mode === "playlist"
         ? imagePlaylist.length
-        : 1;
+        : mode === "loading"
+          ? 0
+          : 1;
 
   const currentPage =
     mode === "archive"
@@ -144,10 +149,9 @@ export function MangaReader({
     ]
   );
 
-  // 放映：自动翻页（动图稍延长停留）
   useEffect(() => {
-    if (!slideshow) return;
-    const delay = (animated ? intervalSec + 2 : intervalSec) * 1000;
+    if (!slideshow || !imgReady) return;
+    const delay = Math.max(125, Math.round(intervalSec * 1000));
     const t = window.setTimeout(() => {
       if (mode === "archive") {
         if (archiveIndex >= archivePages.length - 1) {
@@ -168,8 +172,8 @@ export function MangaReader({
     return () => clearTimeout(t);
   }, [
     slideshow,
+    imgReady,
     intervalSec,
-    animated,
     mode,
     archiveIndex,
     archivePages.length,
@@ -177,6 +181,30 @@ export function MangaReader({
     imagePlaylist.length,
     go,
   ]);
+
+  useEffect(() => {
+    setImgReady(false);
+    const id = requestAnimationFrame(() => {
+      const img = imgRef.current;
+      if (img && img.complete && img.naturalWidth > 0) {
+        setImgReady(true);
+      }
+    });
+    return () => cancelAnimationFrame(id);
+  }, [imageSrc]);
+
+  const bumpChrome = useCallback(() => {
+    setChromeVisible(true);
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+    hideTimer.current = setTimeout(() => setChromeVisible(false), 2500);
+  }, []);
+
+  useEffect(() => {
+    bumpChrome();
+    return () => {
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+    };
+  }, [bumpChrome, currentPage]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -190,10 +218,11 @@ export function MangaReader({
         go(-1);
       }
       if (e.key.toLowerCase() === "p") setSlideshow((s) => !s);
+      bumpChrome();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [go, onClose]);
+  }, [go, onClose, bumpChrome]);
 
   useEffect(() => {
     if (totalPages <= 1) return;
@@ -223,23 +252,27 @@ export function MangaReader({
     totalPages,
   ]);
 
-  const pageLabel =
+  const pageText =
     mode === "loading"
-      ? "加载中"
-      : mode === "single"
-        ? animated
-          ? "动图 / WebP"
-          : "单页"
-        : `${currentPage + 1} / ${totalPages}${animated ? " · 动图" : ""}`;
+      ? "…"
+      : totalPages > 0
+        ? `${currentPage + 1} / ${totalPages}`
+        : "—";
 
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col bg-[#0f1415]">
-      <header className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-white/90">
+    <FullscreenPortal className="fixed inset-0 z-[200] flex flex-col bg-[#0f1415]">
+      <header
+        className={`flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-white/90 transition-opacity ${
+          chromeVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+        }`}
+      >
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{title}</p>
           <p className="text-xs text-white/50">
-            {pageLabel}
-            {slideshow ? " · 放映中" : ""} · ←/→ 翻页 · P 放映
+            {pageText}
+            {animated ? " · 动图" : ""}
+            {slideshow ? " · 放映中" : ""}
+            {" · ←/→ 翻页 · P 放映 · Esc 关闭"}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -247,17 +280,17 @@ export function MangaReader({
             <>
               <label className="flex items-center gap-1 text-xs text-white/50">
                 间隔
-                <input
-                  type="number"
-                  min={1}
-                  max={30}
-                  value={intervalSec}
-                  onChange={(e) =>
-                    setIntervalSec(Math.max(1, Number(e.target.value) || 3))
-                  }
-                  className="w-12 rounded border border-white/20 bg-black/40 px-1 py-0.5 text-white"
-                />
-                s
+                <select
+                  value={String(intervalSec)}
+                  onChange={(e) => setIntervalSec(Number(e.target.value))}
+                  className="rounded border border-white/20 bg-black/40 px-1.5 py-0.5 text-white"
+                >
+                  {[0.125, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 5, 8, 10].map((s) => (
+                    <option key={s} value={s}>
+                      {s}s
+                    </option>
+                  ))}
+                </select>
               </label>
               <button
                 onClick={() => setSlideshow((s) => !s)}
@@ -285,6 +318,8 @@ export function MangaReader({
             ? "justify-center overflow-y-auto scrollbar-thin"
             : "items-center justify-center"
         }`}
+        onMouseMove={bumpChrome}
+        onClick={bumpChrome}
       >
         {mode === "loading" && (
           <p className="animate-pulse-soft text-white/50">加载中…</p>
@@ -305,30 +340,30 @@ export function MangaReader({
                   ? "w-full max-w-3xl object-contain"
                   : "h-full w-full object-contain"
               }
+              onLoad={() => setImgReady(true)}
               onError={() =>
                 setError(
                   "图片加载失败。请确认文件为 jpg/png/webp/gif，或从系列列表打开对应图片项。"
                 )
               }
             />
-            {animated && (
-              <span className="absolute left-3 top-3 rounded bg-teal-700/80 px-2 py-0.5 text-[10px] text-white">
-                动图 / WebP
-              </span>
-            )}
             {totalPages > 1 && (
               <>
                 <button
                   onClick={() => go(-1)}
                   disabled={currentPage <= 0}
-                  className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/40 p-3 text-white hover:bg-black/60 disabled:opacity-30"
+                  className={`absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/40 p-3 text-white hover:bg-black/60 disabled:opacity-30 transition-opacity ${
+                    chromeVisible ? "opacity-100" : "opacity-0"
+                  }`}
                 >
                   <ChevronLeft className="h-6 w-6" />
                 </button>
                 <button
                   onClick={() => go(1)}
                   disabled={currentPage >= totalPages - 1}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/40 p-3 text-white hover:bg-black/60 disabled:opacity-30"
+                  className={`absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/40 p-3 text-white hover:bg-black/60 disabled:opacity-30 transition-opacity ${
+                    chromeVisible ? "opacity-100" : "opacity-0"
+                  }`}
                 >
                   <ChevronRight className="h-6 w-6" />
                 </button>
@@ -336,7 +371,14 @@ export function MangaReader({
             )}
           </>
         )}
+
+        {mode !== "loading" && totalPages > 0 && (
+          <div className="pointer-events-none absolute bottom-6 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/65 px-4 py-1.5 text-sm font-medium tabular-nums tracking-wide text-white shadow-lg backdrop-blur-sm">
+            {pageText}
+            {slideshow ? " · 放映" : ""}
+          </div>
+        )}
       </div>
-    </div>
+    </FullscreenPortal>
   );
 }

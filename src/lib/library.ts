@@ -193,11 +193,38 @@ export function listFolders() {
 
 export function addFolder(folderPath: string, mediaType: MediaType) {
   const db = getDb();
+  // 统一去掉尾部斜杠，避免同一路径因 `/` 差异被当成两条
+  const normalized = folderPath.replace(/\/+$/, "") || folderPath;
+
+  const existing =
+    db
+      .select()
+      .from(schema.libraryFolders)
+      .where(eq(schema.libraryFolders.path, normalized))
+      .get() ||
+    db
+      .select()
+      .from(schema.libraryFolders)
+      .where(eq(schema.libraryFolders.path, normalized + "/"))
+      .get();
+
+  if (existing) {
+    db.update(schema.libraryFolders)
+      .set({ path: normalized, mediaType, enabled: true })
+      .where(eq(schema.libraryFolders.id, existing.id))
+      .run();
+    return db
+      .select()
+      .from(schema.libraryFolders)
+      .where(eq(schema.libraryFolders.id, existing.id))
+      .get();
+  }
+
   const id = uuid();
   db.insert(schema.libraryFolders)
     .values({
       id,
-      path: folderPath,
+      path: normalized,
       mediaType,
       enabled: true,
       createdAt: Date.now(),

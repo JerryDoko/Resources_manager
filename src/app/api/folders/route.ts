@@ -14,47 +14,56 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.json();
-  const { action } = body;
+  try {
+    const body = await req.json();
+    const { action } = body;
 
-  if (action === "browse") {
-    const result = await chooseFolderInFinder(body.prompt || "选择媒体文件夹");
-    return NextResponse.json(result);
-  }
-
-  if (action === "add") {
-    const { path: folderPath, mediaType } = body as {
-      path: string;
-      mediaType: MediaType;
-    };
-    if (!folderPath || !mediaType) {
-      return NextResponse.json({ error: "缺少 path 或 mediaType" }, { status: 400 });
+    if (action === "browse") {
+      const result = await chooseFolderInFinder(body.prompt || "选择媒体文件夹");
+      return NextResponse.json(result);
     }
-    if (!fs.existsSync(folderPath)) {
-      return NextResponse.json({ error: "文件夹不存在" }, { status: 400 });
+
+    if (action === "add") {
+      const { path: folderPath, mediaType } = body as {
+        path: string;
+        mediaType: MediaType;
+      };
+      if (!folderPath || !mediaType) {
+        return NextResponse.json({ error: "缺少 path 或 mediaType" }, { status: 400 });
+      }
+      if (!fs.existsSync(folderPath)) {
+        return NextResponse.json({ error: "文件夹不存在" }, { status: 400 });
+      }
+      const folder = addFolder(folderPath, mediaType);
+      const result = await scanFolder(
+        folderPath.replace(/\/+$/, "") || folderPath,
+        mediaType
+      );
+      return NextResponse.json({ folder, scan: result });
     }
-    const folder = addFolder(folderPath, mediaType);
-    const result = await scanFolder(folderPath, mediaType);
-    return NextResponse.json({ folder, scan: result });
-  }
 
-  if (action === "scan") {
-    const result =
-      body.path && body.mediaType
-        ? await scanFolder(body.path, body.mediaType)
-        : await scanAllFolders();
-    return NextResponse.json({ scan: result });
-  }
+    if (action === "scan") {
+      const result =
+        body.path && body.mediaType
+          ? await scanFolder(body.path, body.mediaType)
+          : await scanAllFolders();
+      return NextResponse.json({ scan: result });
+    }
 
-  if (action === "thumbnails") {
-    const result = await regenerateAllThumbnails();
-    return NextResponse.json(result);
-  }
+    if (action === "thumbnails") {
+      const result = await regenerateAllThumbnails();
+      return NextResponse.json(result);
+    }
 
-  if (action === "remove") {
-    removeFolder(body.id);
-    return NextResponse.json({ ok: true });
-  }
+    if (action === "remove") {
+      removeFolder(body.id);
+      return NextResponse.json({ ok: true });
+    }
 
-  return NextResponse.json({ error: "未知操作" }, { status: 400 });
+    return NextResponse.json({ error: "未知操作" }, { status: 400 });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error("[folders]", message);
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }
