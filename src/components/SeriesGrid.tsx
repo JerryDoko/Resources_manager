@@ -41,7 +41,7 @@ function SeriesThumb({ series, mediaType }: { series: SeriesCard; mediaType: str
         <img
           src={src}
           alt={series.title}
-          className="absolute inset-0 h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+          className="absolute inset-0 h-full w-full object-cover"
           onError={() => setFailed(true)}
           loading="lazy"
         />
@@ -52,13 +52,20 @@ function SeriesThumb({ series, mediaType }: { series: SeriesCard; mediaType: str
           </span>
         </div>
       )}
-      {mediaType === "video" && series.progress > 0 && (
-        <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/30">
-          <div
-            className="h-full bg-[var(--accent-hot)]"
-            style={{ width: `${Math.min(100, series.progress * 100)}%` }}
-          />
-        </div>
+      {mediaType === "video" && (
+        <>
+          <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-black/40">
+            <div
+              className="h-full bg-[var(--accent-hot)] transition-all"
+              style={{ width: `${Math.min(100, series.progress * 100)}%` }}
+            />
+          </div>
+          {series.progress > 0 && (
+            <span className="absolute bottom-2 right-2 rounded bg-black/65 px-1.5 py-0.5 text-[10px] font-medium text-white">
+              {Math.round(series.progress * 100)}%
+            </span>
+          )}
+        </>
       )}
     </div>
   );
@@ -83,6 +90,7 @@ export function SeriesGrid() {
     clearSelection,
     mediaType,
     openSeriesTab,
+    libraryViewMode,
   } = useLibrary();
   const gridRef = useRef<HTMLDivElement>(null);
   const cardRefs = useRef<Map<string, HTMLElement>>(new Map());
@@ -220,15 +228,14 @@ export function SeriesGrid() {
               else cardRefs.current.delete(s.id);
             }}
             className={cn(
-              "group relative cursor-pointer overflow-hidden rounded-[14px] border bg-white transition-all animate-fade-up",
+              "group relative cursor-pointer overflow-hidden rounded-2xl border transition-[border-color,box-shadow] animate-fade-up glass",
               selected
-                ? "border-[var(--accent)] ring-2 ring-[var(--accent)]/30"
-                : "border-[var(--line)] hover:-translate-y-0.5 hover:shadow-lg hover:shadow-teal-900/5"
+                ? "border-[var(--accent)] ring-2 ring-[var(--accent)]/25 shadow-lg shadow-violet-500/10"
+                : "border-[var(--line)] hover:border-[var(--accent)]/30 hover:shadow-md"
             )}
             style={{ animationDelay: `${Math.min(idx, 20) * 30}ms` }}
             onClick={(e) => {
               if (didDrag.current) return;
-              // ⌘/Ctrl 点击：多选；普通单击：始终打开
               if (e.metaKey || e.ctrlKey) {
                 toggleSelect(s.id);
                 return;
@@ -263,6 +270,14 @@ export function SeriesGrid() {
 
             <div className="space-y-1.5 p-3">
               <h3 className="line-clamp-2 text-sm font-medium leading-snug">{s.title}</h3>
+              {libraryViewMode === "series" && s.folderPath && (
+                <p
+                  className="truncate text-[10px] text-[var(--ink-faint)]"
+                  title={s.folderPath}
+                >
+                  {s.folderPath}
+                </p>
+              )}
               <p className="truncate text-xs text-[var(--ink-muted)]">
                 {s.author || "未知作者"} · {s.itemCount}{" "}
                 {mediaType === "music"

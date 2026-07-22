@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, like, or, sql, inArray } from "drizzle-orm";
+import path from "path";
 import { v4 as uuid } from "uuid";
 import { getDb, getSqlite, schema } from "@/lib/db";
 import type { MediaType, SortBy, TagMatchMode, AppSettings } from "@/lib/types";
@@ -79,9 +80,10 @@ export function listSeries(opts: {
     .where(where)
     .get();
 
-  // Attach tags
+  // Attach tags and folder paths
   const ids = items.map((i) => i.id);
   const tagMap = new Map<string, { id: string; name: string; color: string }[]>();
+  const folderPathMap = new Map<string, string>();
   if (ids.length) {
     const tagRows = getSqlite()
       .prepare(
@@ -96,10 +98,28 @@ export function listSeries(opts: {
       list.push({ id: row.id, name: row.name, color: row.color });
       tagMap.set(row.series_id, list);
     }
+
+    const pathRows = getSqlite()
+      .prepare(
+        `SELECT series_id, path FROM media_items
+         WHERE series_id IN (${ids.map(() => "?").join(",")})
+         ORDER BY sort_order, title`
+      )
+      .all(...ids) as { series_id: string; path: string }[];
+
+    for (const row of pathRows) {
+      if (!folderPathMap.has(row.series_id)) {
+        folderPathMap.set(row.series_id, path.dirname(row.path));
+      }
+    }
   }
 
   return {
-    items: items.map((s) => ({ ...s, tags: tagMap.get(s.id) || [] })),
+    items: items.map((s) => ({
+      ...s,
+      tags: tagMap.get(s.id) || [],
+      folderPath: folderPathMap.get(s.id) ?? null,
+    })),
     total: totalRow?.c ?? 0,
   };
 }
@@ -162,6 +182,74 @@ export function deleteSeriesMany(ids: string[]) {
   return { removed };
 }
 
+/** 将多个系列合并为一个新系列（条目迁移，原系列删除） */
+export function mergeSeries(
+  sourceIds: string[],
+  title: string,
+  author: string | null = null
+) {
+  const db = getDb();
+  const now = Date.now();
+  const unique = [...new Set(sourceIds)].filter(Boolean);
+  if (unique.length < 2) throw new Error("请至少选择两个系列进行合并");
+
+  const sources = unique
+    .map((id) => db.select().from(schema.series).where(eq(schema.series.id, id)).get())
+    .filter(Boolean);
+  if (sources.length < 2) throw new Error("系列不存在或数量不足");
+
+  const mediaType = sources[0]!.mediaType;
+  if (!sources.every((s) => s!.mediaType === mediaType)) {
+    throw new Error("只能合并相同媒体类型的系列");
+  }
+
+  const newId = uuid();
+  db.insert(schema.series)
+    .values({
+      id: newId,
+      title: title.trim() || sources[0]!.title,
+      author: author ?? sources[0]!.author,
+      mediaType,
+      rating: Math.max(...sources.map((s) => s!.rating)),
+      itemCount: 0,
+      progress: 0,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+
+  let order = 0;
+  for (const sid of unique) {
+    const items = db
+      .select()
+      .from(schema.mediaItems)
+      .where(eq(schema.mediaItems.seriesId, sid))
+      .all()
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+    for (const item of items) {
+      db.update(schema.mediaItems)
+        .set({ seriesId: newId, sortOrder: order++, updatedAt: now })
+        .where(eq(schema.mediaItems.id, item.id))
+        .run();
+    }
+    db.delete(schema.series).where(eq(schema.series.id, sid)).run();
+  }
+
+  const itemCount =
+    db
+      .select({ c: sql<number>`count(*)` })
+      .from(schema.mediaItems)
+      .where(eq(schema.mediaItems.seriesId, newId))
+      .get()?.c ?? 0;
+
+  db.update(schema.series)
+    .set({ itemCount, updatedAt: now })
+    .where(eq(schema.series.id, newId))
+    .run();
+
+  return getSeriesById(newId);
+}
+
 export function updateItemProgress(id: string, progress: number) {
   const db = getDb();
   const now = Date.now();
@@ -180,12 +268,23 @@ export function updateItemProgress(id: string, progress: number) {
     const avg =
       items.length === 0
         ? 0
-        : items.reduce((s, i) => s + (i.id === id ? progress : i.progress), 0) / items.length;
+        : items.reduce((sum, i) => sum + i.progress, 0) / items.length;
     db.update(schema.series)
       .set({ progress: avg, updatedAt: now })
       .where(eq(schema.series.id, item.seriesId))
       .run();
   }
+}
+
+export function updateItemRating(id: string, rating: number) {
+  const db = getDb();
+  const now = Date.now();
+  const clamped = Math.max(0, Math.min(5, Math.round(rating)));
+  db.update(schema.mediaItems)
+    .set({ rating: clamped, updatedAt: now })
+    .where(eq(schema.mediaItems.id, id))
+    .run();
+  return db.select().from(schema.mediaItems).where(eq(schema.mediaItems.id, id)).get();
 }
 
 /** 批量重置系列内条目进度（及系列平均进度） */
@@ -356,6 +455,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   thumbnailQuality: 80,
   autoScan: false,
   videoShortcuts: JSON.stringify(DEFAULT_VIDEO_SHORTCUTS),
+  uiScale: 1,
 };
 
 export function getSettings(): AppSettings {
@@ -368,6 +468,7 @@ export function getSettings(): AppSettings {
     thumbnailQuality: Number(map.thumbnailQuality ?? DEFAULT_SETTINGS.thumbnailQuality),
     autoScan: map.autoScan === "true",
     videoShortcuts: map.videoShortcuts || DEFAULT_SETTINGS.videoShortcuts,
+    uiScale: Number(map.uiScale ?? DEFAULT_SETTINGS.uiScale) || 1,
   };
 }
 
@@ -443,10 +544,12 @@ export function importBackup(data: ReturnType<typeof exportBackup>) {
     for (const s of data.series) insertSeries.run(s);
 
     const insertItem = sqlite.prepare(`
-      INSERT INTO media_items (id, series_id, title, path, media_type, sort_order, duration, page_count, file_size, capture_date, latitude, longitude, progress, thumbnail_path, metadata, created_at, updated_at)
-      VALUES (@id, @seriesId, @title, @path, @mediaType, @sortOrder, @duration, @pageCount, @fileSize, @captureDate, @latitude, @longitude, @progress, @thumbnailPath, @metadata, @createdAt, @updatedAt)
+      INSERT INTO media_items (id, series_id, title, path, media_type, sort_order, duration, page_count, file_size, capture_date, latitude, longitude, progress, rating, thumbnail_path, metadata, created_at, updated_at)
+      VALUES (@id, @seriesId, @title, @path, @mediaType, @sortOrder, @duration, @pageCount, @fileSize, @captureDate, @latitude, @longitude, @progress, @rating, @thumbnailPath, @metadata, @createdAt, @updatedAt)
     `);
-    for (const i of data.mediaItems) insertItem.run(i);
+    for (const i of data.mediaItems) {
+      insertItem.run({ ...i, rating: (i as { rating?: number }).rating ?? 0 });
+    }
 
     const insertTag = sqlite.prepare(
       `INSERT INTO tags (id, name, color, created_at) VALUES (@id, @name, @color, @createdAt)`

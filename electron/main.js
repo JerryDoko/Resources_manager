@@ -2,7 +2,7 @@
  * Resources Manager — Electron 壳
  * 开发：启动 npm next；打包：启动内置 Node + standalone server
  */
-const { app, BrowserWindow, shell, Menu } = require("electron");
+const { app, BrowserWindow, shell, Menu, ipcMain } = require("electron");
 const { spawn } = require("child_process");
 const http = require("http");
 const path = require("path");
@@ -167,23 +167,50 @@ function stopServer() {
   }
 }
 
+/** @type {BrowserWindow | null} */
+let mainWindow = null;
+
 function createWindow() {
+  const isMac = process.platform === "darwin";
   const win = new BrowserWindow({
     width: 1280,
     height: 840,
     minWidth: 900,
     minHeight: 600,
     title: "Resources Manager",
-    backgroundColor: "#eef1f0",
+    backgroundColor: "#00000000",
+    transparent: true,
+    vibrancy: "under-window",
+    visualEffectState: "active",
+    ...(isMac
+      ? {
+          frame: true,
+          titleBarStyle: "hiddenInset",
+          trafficLightPosition: { x: 14, y: 16 },
+        }
+      : { frame: false }),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
+      preload: path.join(__dirname, "preload.js"),
     },
     show: false,
   });
 
-  win.once("ready-to-show", () => win.show());
+  mainWindow = win;
+
+  const notifyFullscreen = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send("rm:fullscreen-changed", mainWindow.isFullScreen());
+  };
+  win.on("enter-full-screen", notifyFullscreen);
+  win.on("leave-full-screen", notifyFullscreen);
+
+  win.once("ready-to-show", () => {
+    win.show();
+    notifyFullscreen();
+  });
   win.loadURL(URL);
 
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -198,7 +225,7 @@ function createWindow() {
           overrideBrowserWindowOptions: {
             width: 1100,
             height: 760,
-            backgroundColor: "#eef1f0",
+            backgroundColor: "#00000000",
             webPreferences: {
               nodeIntegration: false,
               contextIsolation: true,
@@ -216,6 +243,15 @@ function createWindow() {
 
   return win;
 }
+
+ipcMain.handle("rm:is-fullscreen", () => mainWindow?.isFullScreen() ?? false);
+
+ipcMain.on("rm:window-close", () => mainWindow?.close());
+ipcMain.on("rm:window-minimize", () => mainWindow?.minimize());
+ipcMain.on("rm:window-toggle-fullscreen", () => {
+  if (!mainWindow) return;
+  mainWindow.setFullScreen(!mainWindow.isFullScreen());
+});
 
 function buildMenu() {
   const isMac = process.platform === "darwin";

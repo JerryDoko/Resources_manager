@@ -60,6 +60,7 @@ function ensureSchema(sqlite: Database.Database) {
       latitude REAL,
       longitude REAL,
       progress REAL NOT NULL DEFAULT 0,
+      rating INTEGER NOT NULL DEFAULT 0,
       thumbnail_path TEXT,
       metadata TEXT,
       created_at INTEGER NOT NULL,
@@ -91,6 +92,18 @@ function ensureSchema(sqlite: Database.Database) {
       value TEXT NOT NULL
     );
   `);
+
+  const itemCols = sqlite
+    .prepare("PRAGMA table_info(media_items)")
+    .all() as { name: string }[];
+  if (!itemCols.some((c) => c.name === "rating")) {
+    sqlite.exec(
+      "ALTER TABLE media_items ADD COLUMN rating INTEGER NOT NULL DEFAULT 0"
+    );
+  }
+  sqlite.exec(
+    "CREATE INDEX IF NOT EXISTS items_rating_idx ON media_items(rating)"
+  );
 }
 
 function bootOnce() {

@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import type { MediaType, SortBy, TagMatchMode } from "@/lib/types";
+import type { MediaType, SortBy, TagMatchMode, LibraryViewMode } from "@/lib/types";
 
 export const LIBRARY_TAB_ID = "library";
 
@@ -17,6 +17,7 @@ export interface SeriesCard {
   captureDate: string | null;
   updatedAt: number;
   tags: { id: string; name: string; color: string }[];
+  folderPath: string | null;
 }
 
 export type WorkspaceTab =
@@ -86,6 +87,12 @@ interface LibraryContextValue {
   openBatchSession: (session: BatchSession) => void;
   setBatchCurrentId: (id: string) => void;
   closeBatchSession: () => void;
+  libraryViewMode: LibraryViewMode;
+  setLibraryViewMode: (m: LibraryViewMode) => void;
+  previewSeriesId: string | null;
+  setPreviewSeriesId: (id: string | null) => void;
+  uiScale: number;
+  setUiScale: (n: number) => void;
 }
 
 const LibraryContext = createContext<LibraryContextValue | null>(null);
@@ -115,6 +122,34 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
   ]);
   const [activeTabId, setActiveTabId] = useState<string>(LIBRARY_TAB_ID);
   const [batchSession, setBatchSession] = useState<BatchSession | null>(null);
+  const [libraryViewMode, setLibraryViewMode] = useState<LibraryViewMode>("series");
+  const [previewSeriesId, setPreviewSeriesId] = useState<string | null>(null);
+  const [uiScale, setUiScaleState] = useState(1);
+
+  const setUiScale = useCallback((n: number) => {
+    const v = Math.min(1.25, Math.max(0.85, n));
+    setUiScaleState(v);
+    if (typeof document !== "undefined") {
+      document.documentElement.style.setProperty("--ui-scale", String(v));
+    }
+    fetch("/api/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ uiScale: v }),
+      signal: AbortSignal.timeout(10000),
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/settings", { signal: AbortSignal.timeout(10000) })
+      .then((r) => r.json())
+      .then((data) => {
+        const scale = Number(data.uiScale) || 1;
+        setUiScaleState(scale);
+        document.documentElement.style.setProperty("--ui-scale", String(scale));
+      })
+      .catch(() => {});
+  }, []);
 
   const refreshTags = useCallback(async () => {
     const res = await fetch("/api/tags", { signal: AbortSignal.timeout(10000) });
@@ -283,6 +318,12 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
       openBatchSession,
       setBatchCurrentId,
       closeBatchSession,
+      libraryViewMode,
+      setLibraryViewMode,
+      previewSeriesId,
+      setPreviewSeriesId,
+      uiScale,
+      setUiScale,
     }),
     [
       mediaType,
@@ -312,6 +353,10 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
       openBatchSession,
       setBatchCurrentId,
       closeBatchSession,
+      libraryViewMode,
+      previewSeriesId,
+      uiScale,
+      setUiScale,
     ]
   );
 

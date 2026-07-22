@@ -5,6 +5,15 @@ import { X, FolderPlus, RefreshCw, Download, Upload, Trash2, Globe, FolderOpen, 
 import { useLibrary } from "@/lib/store";
 import { MEDIA_TYPE_LABELS, type MediaType } from "@/lib/types";
 import { ShortcutSettings } from "@/components/ShortcutSettings";
+import { cn } from "@/lib/utils";
+
+interface StoragePaths {
+  rootDataDir: string;
+  activeProfileName: string;
+  activeProfileDir: string;
+  libraryDb: string;
+  thumbnailsDir: string;
+}
 
 interface Folder {
   id: string;
@@ -14,24 +23,28 @@ interface Folder {
 }
 
 export function SettingsPanel() {
-  const { showSettings, setShowSettings, refresh, mediaType } = useLibrary();
+  const { showSettings, setShowSettings, refresh, mediaType, uiScale, setUiScale } =
+    useLibrary();
   const [folders, setFolders] = useState<Folder[]>([]);
   const [path, setPath] = useState("");
   const [type, setType] = useState<MediaType>(mediaType);
   const [scanning, setScanning] = useState(false);
   const [scanMsg, setScanMsg] = useState<string | null>(null);
+  const [storagePaths, setStoragePaths] = useState<StoragePaths | null>(null);
   const [settings, setSettings] = useState({
     remoteEnabled: false,
     remoteSubdomain: "resources",
   });
 
   const load = async () => {
-    const [fRes, sRes] = await Promise.all([
+    const [fRes, sRes, pRes] = await Promise.all([
       fetch("/api/folders", { signal: AbortSignal.timeout(10000) }),
       fetch("/api/settings", { signal: AbortSignal.timeout(10000) }),
+      fetch("/api/system/paths", { signal: AbortSignal.timeout(10000) }),
     ]);
     const fData = await fRes.json();
     const sData = await sRes.json();
+    if (pRes.ok) setStoragePaths(await pRes.json());
     setFolders(fData.folders || []);
     setSettings({
       remoteEnabled: !!sData.remoteEnabled,
@@ -224,9 +237,9 @@ export function SettingsPanel() {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm animate-fade-up">
-      <div className="panel flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white">
-        <div className="flex items-center justify-between border-b border-[var(--line)] px-5 py-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 animate-fade-up">
+      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-[var(--line)] bg-white shadow-xl">
+        <div className="flex shrink-0 items-center justify-between border-b border-[var(--line)] bg-white px-5 py-4">
           <div>
             <h2 className="text-display text-xl font-semibold">设置</h2>
             <p className="text-xs text-[var(--ink-muted)]">
@@ -242,6 +255,71 @@ export function SettingsPanel() {
         </div>
 
         <div className="flex-1 space-y-6 overflow-y-auto px-5 py-5 scrollbar-thin">
+          <section className="rounded-2xl border border-[var(--line)] bg-[#f7f9f8] p-4">
+            <h3 className="mb-3 text-sm font-semibold">界面大小</h3>
+            <p className="mb-3 text-xs text-[var(--ink-muted)]">
+              调整整体界面缩放比例，立即生效并保存到本地设置。
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { label: "较小", value: 0.85 },
+                { label: "默认", value: 1 },
+                { label: "较大", value: 1.1 },
+                { label: "最大", value: 1.25 },
+              ].map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setUiScale(opt.value)}
+                  className={cn(
+                    "rounded-xl border px-4 py-2 text-sm transition",
+                    Math.abs(uiScale - opt.value) < 0.01
+                      ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]"
+                      : "border-[var(--line)] hover:bg-white/50"
+                  )}
+                >
+                  {opt.label} ({Math.round(opt.value * 100)}%)
+                </button>
+              ))}
+            </div>
+          </section>
+
+          {storagePaths && (
+            <section className="rounded-2xl border border-[var(--line)] bg-[#f7f9f8] p-4">
+              <h3 className="mb-3 text-sm font-semibold">数据存储位置</h3>
+              <dl className="space-y-2 text-xs">
+                <div>
+                  <dt className="text-[var(--ink-faint)]">当前配置</dt>
+                  <dd className="mt-0.5 font-medium">{storagePaths.activeProfileName}</dd>
+                </div>
+                <div>
+                  <dt className="text-[var(--ink-faint)]">配置目录</dt>
+                  <dd className="mt-0.5 break-all font-mono text-[11px]">
+                    {storagePaths.activeProfileDir}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[var(--ink-faint)]">数据库</dt>
+                  <dd className="mt-0.5 break-all font-mono text-[11px]">
+                    {storagePaths.libraryDb}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[var(--ink-faint)]">缩略图</dt>
+                  <dd className="mt-0.5 break-all font-mono text-[11px]">
+                    {storagePaths.thumbnailsDir}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[var(--ink-faint)]">根目录</dt>
+                  <dd className="mt-0.5 break-all font-mono text-[11px]">
+                    {storagePaths.rootDataDir}
+                  </dd>
+                </div>
+              </dl>
+            </section>
+          )}
+
           <section>
             <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
               <FolderPlus className="h-4 w-4 text-[var(--accent)]" />

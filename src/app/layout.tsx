@@ -28,7 +28,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
-      <body className={`${fraunces.variable} ${dmSans.variable} antialiased`}>
+      <body className={`${fraunces.variable} ${dmSans.variable} antialiased bg-transparent`}>
         <LibraryProvider>
           {children}
           <SettingsPanel />

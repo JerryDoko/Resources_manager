@@ -52,6 +52,7 @@ export const mediaItems = sqliteTable(
     latitude: real("latitude"),
     longitude: real("longitude"),
     progress: real("progress").notNull().default(0),
+    rating: integer("rating").notNull().default(0),
     thumbnailPath: text("thumbnail_path"),
     metadata: text("metadata"),
     createdAt: integer("created_at").notNull(),
@@ -61,6 +62,7 @@ export const mediaItems = sqliteTable(
     index("items_series_idx").on(t.seriesId),
     index("items_media_type_idx").on(t.mediaType),
     index("items_capture_idx").on(t.captureDate),
+    index("items_rating_idx").on(t.rating),
   ]
 );
 

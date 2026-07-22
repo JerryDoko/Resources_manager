@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { X, ChevronLeft, ChevronRight, Play, Pause } from "lucide-react";
 import { FullscreenPortal } from "./FullscreenPortal";
+import { useAppChrome } from "@/lib/useAppChrome";
 
 export interface MangaPageItem {
   id: string;
@@ -47,6 +48,7 @@ export function MangaReader({
   const [chromeVisible, setChromeVisible] = useState(true);
   const imgRef = useRef<HTMLImageElement>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | 0>(0);
+  const { viewerHeaderClass } = useAppChrome();
 
   const imagePlaylist = useMemo(
     () => playlist.filter((p) => !p.path || IMAGE_PAGE_RE.test(p.path)),
@@ -262,7 +264,7 @@ export function MangaReader({
   return (
     <FullscreenPortal className="fixed inset-0 z-[300] flex flex-col bg-[#0f1415] animate-viewer-in">
       <header
-        className={`flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-white/90 transition-opacity ${
+        className={`flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-white/90 transition-opacity ${viewerHeaderClass} ${
           chromeVisible ? "opacity-100" : "opacity-0 pointer-events-none"
         }`}
       >

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   updateItemProgress,
+  updateItemRating,
   reorderItems,
   resetSeriesProgress,
   listItemsForSeriesIds,
@@ -56,6 +57,11 @@ export async function PATCH(req: NextRequest) {
   if (body.action === "progress") {
     updateItemProgress(body.id, body.progress);
     return NextResponse.json({ ok: true });
+  }
+
+  if (body.action === "rating") {
+    const item = updateItemRating(body.id, body.rating);
+    return NextResponse.json({ item });
   }
 
   if (body.action === "reorder") {

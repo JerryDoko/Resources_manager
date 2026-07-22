@@ -200,3 +200,21 @@ export function applyDefaultOnBoot() {
   }
   return reg;
 }
+
+/** 当前数据目录（供设置页展示） */
+export function getStoragePaths() {
+  const reg = loadRegistry();
+  const root = getRootDataDir();
+  const activeId = reg.activeId;
+  const activeDir = profileDir(activeId);
+  const activeProfile = reg.profiles.find((p) => p.id === activeId);
+  return {
+    rootDataDir: root,
+    profilesRegistry: registryPath(),
+    activeProfileId: activeId,
+    activeProfileName: activeProfile?.name || activeId,
+    activeProfileDir: activeDir,
+    libraryDb: path.join(activeDir, "library.db"),
+    thumbnailsDir: path.join(activeDir, "thumbnails"),
+  };
+}

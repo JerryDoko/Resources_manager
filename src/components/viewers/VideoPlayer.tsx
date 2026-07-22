@@ -23,6 +23,7 @@ import {
 } from "@/lib/shortcuts";
 import { formatDuration } from "@/lib/utils";
 import { FullscreenPortal } from "./FullscreenPortal";
+import { useAppChrome } from "@/lib/useAppChrome";
 
 export interface PlaylistItem {
   id: string;
@@ -76,6 +77,7 @@ export function VideoPlayer({
   const holdKey = useRef<string | null>(null);
   const normalRate = useRef(1);
   const pressed = useRef(new Set<string>());
+  const { viewerHeaderClass } = useAppChrome();
 
   const idx = playlist.findIndex((p) => p.id === itemId);
   const hasPrev = idx > 0;
@@ -478,7 +480,9 @@ export function VideoPlayer({
 
   return (
     <FullscreenPortal className="fixed inset-0 z-[300] flex flex-col bg-black animate-viewer-in">
-      <header className="flex shrink-0 items-center justify-between gap-3 px-4 py-3 text-white/90">
+      <header
+        className={`flex shrink-0 items-center justify-between gap-3 px-4 py-3 text-white/90 ${viewerHeaderClass}`}
+      >
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{title}</p>
           <p className="truncate text-xs text-white/40">{hintLine}</p>

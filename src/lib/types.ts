@@ -48,6 +48,7 @@ export interface MediaItem {
   latitude: number | null;
   longitude: number | null;
   progress: number;
+  rating: number;
   thumbnailPath: string | null;
   metadata: string | null;
   createdAt: number;
@@ -69,7 +70,11 @@ export interface AppSettings {
   autoScan: boolean;
   /** JSON string of VideoShortcuts */
   videoShortcuts: string;
+  /** 界面缩放 0.85 | 1 | 1.1 | 1.25 */
+  uiScale: number;
 }
+
+export type LibraryViewMode = "import" | "series";
 
 export interface ScanResult {
   scanned: number;

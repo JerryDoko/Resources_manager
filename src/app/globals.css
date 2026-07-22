@@ -3,18 +3,20 @@
 @tailwind utilities;
 
 :root {
-  --bg: #eef1f0;
-  --bg-elevated: #f7f9f8;
-  --bg-panel: #ffffffcc;
-  --ink: #152022;
-  --ink-muted: #5a6b6d;
-  --ink-faint: #8a9a9c;
-  --accent: #1f6f6a;
-  --accent-soft: #d4ebe8;
-  --accent-hot: #c45c26;
-  --line: #d5dedc;
-  --shadow: 0 12px 40px rgba(21, 32, 34, 0.08);
-  --radius: 14px;
+  --ui-scale: 1;
+  --bg: transparent;
+  --bg-elevated: rgba(255, 255, 255, 0.72);
+  --bg-panel: rgba(255, 255, 255, 0.55);
+  --bg-sidebar: rgba(248, 250, 252, 0.82);
+  --ink: #0f172a;
+  --ink-muted: #64748b;
+  --ink-faint: #94a3b8;
+  --accent: #7c3aed;
+  --accent-soft: rgba(124, 58, 237, 0.12);
+  --accent-hot: #a855f7;
+  --line: rgba(148, 163, 184, 0.35);
+  --shadow: 0 8px 32px rgba(15, 23, 42, 0.08);
+  --radius: 16px;
   --font-display: var(--font-fraunces), "Songti SC", serif;
   --font-body: var(--font-dm-sans), "PingFang SC", sans-serif;
 }
@@ -23,17 +25,18 @@
   box-sizing: border-box;
 }
 
+html {
+  font-size: calc(16px * var(--ui-scale));
+}
+
 html,
 body {
   height: 100%;
+  background: transparent;
 }
 
 body {
   color: var(--ink);
-  background:
-    radial-gradient(1200px 600px at 10% -10%, #d9ebe8 0%, transparent 55%),
-    radial-gradient(900px 500px at 100% 0%, #f0e6d8 0%, transparent 50%),
-    linear-gradient(180deg, #eef1f0 0%, #e6ebea 100%);
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
 }
@@ -48,9 +51,24 @@ body {
     font-family: var(--font-display);
   }
 
+  .glass {
+    background: var(--bg-panel);
+    backdrop-filter: blur(20px) saturate(1.4);
+    -webkit-backdrop-filter: blur(20px) saturate(1.4);
+    border: 1px solid var(--line);
+  }
+
+  .glass-sidebar {
+    background: var(--bg-sidebar);
+    backdrop-filter: blur(24px) saturate(1.5);
+    -webkit-backdrop-filter: blur(24px) saturate(1.5);
+    border-right: 1px solid var(--line);
+  }
+
   .panel {
     background: var(--bg-panel);
-    backdrop-filter: blur(16px);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
     border: 1px solid var(--line);
     box-shadow: var(--shadow);
   }
@@ -60,7 +78,7 @@ body {
     height: 8px;
   }
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    background: #c5d0ce;
+    background: rgba(148, 163, 184, 0.45);
     border-radius: 999px;
   }
   .scrollbar-thin::-webkit-scrollbar-track {
@@ -97,7 +115,6 @@ body {
   animation: pulse-soft 1.6s ease-in-out infinite;
 }
 
-/* 标签切换短时虚化：只播一次后卸载，避免常驻 blur 拖性能 */
 @keyframes soft-veil {
   0% {
     opacity: 0;
@@ -118,7 +135,6 @@ body {
   contain: strict;
 }
 
-/* 播放器淡入：仅 opacity，无 blur */
 @keyframes viewer-in {
   from {
     opacity: 0;
@@ -132,7 +148,15 @@ body {
   animation: viewer-in 160ms ease-out both;
 }
 
-/* 视频进度条：8px 轨道 + 12px 拇指（居中） */
+/* Electron 窗口拖拽区域 */
+.window-drag {
+  -webkit-app-region: drag;
+}
+.window-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* 视频进度条 */
 .video-scrubber {
   margin: 0;
 }
@@ -141,10 +165,10 @@ body {
   appearance: none;
   width: 12px;
   height: 12px;
-  margin-top: -2px; /* (12 - 8) / 2 */
+  margin-top: -2px;
   border-radius: 999px;
   background: #fff;
-  box-shadow: 0 0 0 2px rgba(31, 111, 106, 0.85);
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.85);
   cursor: pointer;
 }
 .video-scrubber::-moz-range-thumb {
@@ -153,7 +177,7 @@ body {
   border: none;
   border-radius: 999px;
   background: #fff;
-  box-shadow: 0 0 0 2px rgba(31, 111, 106, 0.85);
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.85);
   cursor: pointer;
 }
 .video-scrubber::-webkit-slider-runnable-track {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Search, Filter, Star, ArrowUpDown, Play, RotateCcw, Trash2 } from "lucide-react";
 import { useLibrary } from "@/lib/store";
 import type { SortBy } from "@/lib/types";
@@ -34,6 +34,16 @@ export function Toolbar() {
     refresh,
   } = useLibrary();
   const [busy, setBusy] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (searchOpen) searchRef.current?.focus();
+  }, [searchOpen]);
+
+  useEffect(() => {
+    if (search.trim()) setSearchOpen(true);
+  }, [search]);
 
   const toggleTagId = (id: string) => {
     if (selectedTagIds.includes(id)) {
@@ -133,15 +143,31 @@ export function Toolbar() {
   return (
     <div className="mx-auto max-w-[1600px] space-y-3 px-5 py-4">
       <div className="flex flex-wrap items-center gap-3">
-        <div className="relative min-w-[220px] flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ink-faint)]" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="搜索标题或作者…"
-            className="w-full rounded-xl border border-[var(--line)] bg-white py-2.5 pl-10 pr-4 text-sm outline-none ring-[var(--accent)] transition focus:ring-2"
-          />
-        </div>
+        {searchOpen ? (
+          <div className="relative min-w-[220px] flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ink-faint)]" />
+            <input
+              ref={searchRef}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onBlur={() => {
+                if (!search.trim()) setSearchOpen(false);
+              }}
+              placeholder="搜索标题或作者…"
+              className="w-full rounded-xl border border-[var(--line)] bg-white/70 py-2.5 pl-10 pr-4 text-sm outline-none ring-[var(--accent)] transition focus:ring-2"
+            />
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setSearchOpen(true)}
+            className="flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--line)] bg-white/70 text-[var(--ink-muted)] hover:text-[var(--ink)]"
+            title="搜索"
+            aria-label="搜索"
+          >
+            <Search className="h-4 w-4" />
+          </button>
+        )}
 
         <div className="flex items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-3 py-2">
           <ArrowUpDown className="h-4 w-4 text-[var(--ink-faint)]" />
