@@ -1,6 +1,6 @@
 {
   "name": "resources-manager",
-  "version": "0.1.0",
+  "version": "1.0.2",
   "private": true,
   "description": "本地一体化资源管理器 — 漫画、条漫、小说、视频、音乐与照片，私有、离线、自动整理",
   "author": "JerryDoko",
