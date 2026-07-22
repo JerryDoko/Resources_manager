@@ -1,8 +1,13 @@
 import fs from "fs";
+import os from "os";
 import path from "path";
+import { execFile } from "child_process";
+import { promisify } from "util";
 import sharp from "sharp";
 import JSZip from "jszip";
 import { getDataDir } from "@/lib/db";
+
+const execFileAsync = promisify(execFile);
 
 const IMAGE_EXTS = new Set([
   ".jpg",
@@ -13,6 +18,24 @@ const IMAGE_EXTS = new Set([
   ".avif",
   ".bmp",
   ".tiff",
+]);
+
+const VIDEO_EXTS = new Set([
+  ".mp4",
+  ".mkv",
+  ".avi",
+  ".mov",
+  ".wmv",
+  ".flv",
+  ".webm",
+  ".m4v",
+  ".k3g",
+  ".3g2",
+  ".3gp",
+  ".skm",
+  ".qt",
+  ".ts",
+  ".m2ts",
 ]);
 
 export function getThumbnailsDir() {
@@ -41,6 +64,22 @@ async function writeThumb(buffer: Buffer, dest: string, maxSize = 480): Promise<
       .webp({ quality: 78 })
       .toFile(dest);
     return dest;
+  } catch {
+    return null;
+  }
+}
+
+/** 将 data URL / base64 图写入缩略图文件（覆盖） */
+export async function writeThumbFromDataUrl(
+  dataUrl: string,
+  dest: string
+): Promise<string | null> {
+  const m = dataUrl.match(/^data:image\/[\w+.-]+;base64,(.+)$/i);
+  if (!m?.[1]) return null;
+  try {
+    const buf = Buffer.from(m[1], "base64");
+    if (fs.existsSync(dest)) fs.unlinkSync(dest);
+    return writeThumb(buf, dest);
   } catch {
     return null;
   }
@@ -84,7 +123,6 @@ async function fromEpub(filePath: string, dest: string): Promise<string | null> 
     const buf = fs.readFileSync(filePath);
     const zip = await JSZip.loadAsync(buf);
 
-    // Prefer common cover names
     const names = Object.keys(zip.files);
     const coverCandidates = names
       .filter((n) => {
@@ -99,7 +137,6 @@ async function fromEpub(filePath: string, dest: string): Promise<string | null> 
 
     let pick = coverCandidates[0];
 
-    // Fallback: parse OPF for cover meta
     if (!pick) {
       const opf = names.find((n) => n.toLowerCase().endsWith(".opf"));
       if (opf) {
@@ -122,7 +159,6 @@ async function fromEpub(filePath: string, dest: string): Promise<string | null> 
       }
     }
 
-    // Last resort: first image in epub
     if (!pick) {
       pick = names
         .filter((n) => !zip.files[n].dir && IMAGE_EXTS.has(path.extname(n).toLowerCase()))
@@ -149,6 +185,50 @@ async function fromMusicCover(filePath: string, dest: string): Promise<string | 
   }
 }
 
+/** macOS Quick Look 抽帧；失败再试系统 ffmpeg */
+async function fromVideoFile(filePath: string, dest: string): Promise<string | null> {
+  if (!fs.existsSync(filePath)) return null;
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "rm-vthumb-"));
+  try {
+    try {
+      await execFileAsync(
+        "qlmanage",
+        ["-t", "-s", "640", "-o", tmpDir, filePath],
+        { timeout: 30000, maxBuffer: 4 * 1024 * 1024 }
+      );
+      const pngs = fs.readdirSync(tmpDir).filter((f) => f.toLowerCase().endsWith(".png"));
+      if (pngs.length) {
+        const buf = fs.readFileSync(path.join(tmpDir, pngs[0]));
+        return writeThumb(buf, dest);
+      }
+    } catch {
+      /* try ffmpeg */
+    }
+
+    const outPng = path.join(tmpDir, "frame.png");
+    try {
+      await execFileAsync(
+        "ffmpeg",
+        ["-y", "-ss", "1", "-i", filePath, "-frames:v", "1", "-q:v", "2", outPng],
+        { timeout: 30000, maxBuffer: 4 * 1024 * 1024 }
+      );
+      if (fs.existsSync(outPng)) {
+        return writeThumb(fs.readFileSync(outPng), dest);
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  } finally {
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 /** Generate a thumbnail from a source media file into dest path. */
 export async function generateThumbFromFile(
   sourcePath: string,
@@ -168,6 +248,9 @@ export async function generateThumbFromFile(
   if ([".mp3", ".flac", ".m4a", ".aac", ".ogg", ".wav", ".wma", ".opus"].includes(ext)) {
     return fromMusicCover(sourcePath, destPath);
   }
+  if (VIDEO_EXTS.has(ext)) {
+    return fromVideoFile(sourcePath, destPath);
+  }
 
   return null;
 }
@@ -179,7 +262,6 @@ export async function ensureSeriesThumbnail(
   if (!sourcePath) return null;
   const dest = seriesThumbPath(seriesId);
   if (fs.existsSync(dest)) {
-    // Refresh if source is newer than thumb
     try {
       const srcStat = fs.statSync(sourcePath);
       const thumbStat = fs.statSync(dest);

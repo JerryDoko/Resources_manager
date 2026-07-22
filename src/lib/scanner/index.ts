@@ -63,12 +63,11 @@ function matchMediaType(filePath: string, preferred: MediaType): MediaType | nul
   return null;
 }
 
-function isLooseImageManga(files: string[], root: string): Map<string, string[]> {
+function isLooseImageManga(files: string[]): Map<string, string[]> {
   const groups = new Map<string, string[]>();
   for (const f of files) {
     if (!IMAGE_EXTS.has(getExt(f))) continue;
     const parent = path.dirname(f);
-    if (parent === root) continue;
     const list = groups.get(parent) || [];
     list.push(f);
     groups.set(parent, list);
@@ -140,8 +139,8 @@ export async function scanFolder(
 
   const touchedSeries = new Set<string>();
 
-  if (mediaType === "manga" || mediaType === "webtoon" || mediaType === "photo") {
-    const imageGroups = isLooseImageManga(matched, folderPath);
+  if (mediaType === "manga" || mediaType === "webtoon") {
+    const imageGroups = isLooseImageManga(matched);
     const archiveAndOthers = matched.filter(
       (f) => ARCHIVE_EXTS.has(getExt(f)) || !IMAGE_EXTS.has(getExt(f))
     );
@@ -166,7 +165,10 @@ export async function scanFolder(
     for (const [folder, images] of imageGroups) {
       try {
         images.sort(naturalCompare);
-        const { seriesFolder, episodeLabel } = resolveSeriesFromImageFolder(folder, folderPath);
+        const { seriesFolder, episodeLabel } =
+          folder === folderPath
+            ? { seriesFolder: folderPath, episodeLabel: null as string | null }
+            : resolveSeriesFromImageFolder(folder, folderPath);
         const folderName = path.basename(seriesFolder);
         const parsed = parseMediaName(folderName);
         const seriesId = await findOrCreateSeries(
@@ -203,7 +205,6 @@ export async function scanFolder(
           const baseTitle = path.basename(img, path.extname(img));
           const title = episodeLabel ? `${episodeLabel} · ${baseTitle}` : baseTitle;
 
-          // 扫描阶段跳过逐张缩略图，避免大库超时；展示时再懒生成
           db.insert(schema.mediaItems)
             .values({
               id: itemId,
@@ -213,10 +214,7 @@ export async function scanFolder(
               mediaType,
               sortOrder: order++,
               fileSize: stat.size,
-              captureDate:
-                mediaType === "photo"
-                  ? new Date(stat.mtimeMs).toISOString().slice(0, 10)
-                  : null,
+              captureDate: null,
               thumbnailPath: null,
               createdAt: now,
               updatedAt: now,
@@ -228,26 +226,94 @@ export async function scanFolder(
         result.errors.push(`${folder}: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
+  } else if (mediaType === "photo" || mediaType === "video") {
+    // 照片 / 视频：以所在文件夹为单位建系列（同文件夹多文件归为一组）
+    const allowedExts = new Set(
+      mediaType === "photo" ? IMAGE_EXTS : MEDIA_EXTENSIONS.video
+    );
+    const albumGroups = new Map<string, string[]>();
+    for (const f of matched) {
+      if (!allowedExts.has(getExt(f))) continue;
+      const parent = path.dirname(f);
+      const list = albumGroups.get(parent) || [];
+      list.push(f);
+      albumGroups.set(parent, list);
+    }
 
-    if (mediaType === "photo") {
-      const rootImages = matched.filter(
-        (f) => IMAGE_EXTS.has(getExt(f)) && path.dirname(f) === folderPath
-      );
-      for (const img of rootImages) {
-        try {
-          const seriesId = await upsertFileAsItem(
-            db,
-            img,
-            mediaType,
-            now,
-            result,
-            folderPath,
-            false
-          );
-          if (seriesId) touchedSeries.add(seriesId);
-        } catch (e) {
-          result.errors.push(`${img}: ${e instanceof Error ? e.message : String(e)}`);
+    for (const [folder, files] of albumGroups) {
+      try {
+        files.sort(naturalCompare);
+        const folderName =
+          folder === folderPath ? path.basename(folderPath) : path.basename(folder);
+        const parsed = parseMediaName(folderName);
+        const seriesId = await findOrCreateSeries(
+          db,
+          parsed.title,
+          parsed.author,
+          mediaType,
+          now,
+          result
+        );
+        touchedSeries.add(seriesId);
+
+        let order =
+          db
+            .select({ c: sql<number>`count(*)` })
+            .from(schema.mediaItems)
+            .where(eq(schema.mediaItems.seriesId, seriesId))
+            .get()?.c ?? 0;
+
+        for (const filePath of files) {
+          const existing = db
+            .select()
+            .from(schema.mediaItems)
+            .where(eq(schema.mediaItems.path, filePath))
+            .get();
+
+          if (existing) {
+            result.updated++;
+            if (existing.seriesId !== seriesId) {
+              touchedSeries.add(existing.seriesId);
+              db.update(schema.mediaItems)
+                .set({ seriesId, updatedAt: now })
+                .where(eq(schema.mediaItems.id, existing.id))
+                .run();
+            }
+            if (mediaType === "video" && !existing.thumbnailPath) {
+              const thumb = await ensureItemThumbnail(existing.id, filePath);
+              if (thumb) {
+                db.update(schema.mediaItems)
+                  .set({ thumbnailPath: thumb, updatedAt: now })
+                  .where(eq(schema.mediaItems.id, existing.id))
+                  .run();
+              }
+            }
+            continue;
+          }
+
+          const stat = fs.statSync(filePath);
+          const itemId = uuid();
+          const thumb =
+            mediaType === "video" ? await ensureItemThumbnail(itemId, filePath) : null;
+          db.insert(schema.mediaItems)
+            .values({
+              id: itemId,
+              seriesId,
+              title: path.basename(filePath, path.extname(filePath)),
+              path: filePath,
+              mediaType,
+              sortOrder: order++,
+              fileSize: stat.size,
+              captureDate: new Date(stat.mtimeMs).toISOString().slice(0, 10),
+              thumbnailPath: thumb,
+              createdAt: now,
+              updatedAt: now,
+            })
+            .run();
+          result.added++;
         }
+      } catch (e) {
+        result.errors.push(`${folder}: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
   } else {
@@ -271,6 +337,23 @@ export async function scanFolder(
 
   for (const seriesId of touchedSeries) {
     await refreshSeriesStats(db, seriesId, now);
+    const remaining =
+      db
+        .select({ c: sql<number>`count(*)` })
+        .from(schema.mediaItems)
+        .where(eq(schema.mediaItems.seriesId, seriesId))
+        .get()?.c ?? 0;
+    if (remaining === 0) {
+      db.delete(schema.series).where(eq(schema.series.id, seriesId)).run();
+    }
+  }
+
+  if (result.scanned > 0 && result.added === 0 && result.updated === 0) {
+    result.errors.push(
+      mediaType === "manga" || mediaType === "webtoon"
+        ? "未新增内容：可能文件已在库中，或扩展名不在漫画支持列表（jpg/png/webp/gif/zip/cbz）"
+        : "未新增内容：可能文件已在库中，或类型与扩展名不匹配"
+    );
   }
 
   return result;

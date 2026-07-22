@@ -17,7 +17,6 @@ import { cn, formatBytes, formatDate, formatDuration } from "@/lib/utils";
 import { MangaReader } from "@/components/viewers/MangaReader";
 import { VideoPlayer } from "@/components/viewers/VideoPlayer";
 import { NovelReader } from "@/components/viewers/NovelReader";
-import { PhotoViewer } from "@/components/viewers/PhotoViewer";
 
 interface SeriesDetail {
   id: string;
@@ -95,6 +94,11 @@ export function SeriesDetailView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seriesId]);
 
+  // 切走标签时关闭播放器，避免与其它页叠层
+  useEffect(() => {
+    if (!isActive) setViewerItemId(null);
+  }, [isActive]);
+
   const setRating = async (rating: number) => {
     await fetch(`/api/library/${seriesId}`, {
       method: "PATCH",
@@ -166,6 +170,59 @@ export function SeriesDetailView({
   const typeLabel =
     MEDIA_TYPE_LABELS[(data?.mediaType as MediaType) || "manga"] || data?.mediaType;
 
+  // 播放器独占：不与详情页 DOM 并存，避免叠层
+  if (isActive && viewerItem && data) {
+    if (
+      data.mediaType === "manga" ||
+      data.mediaType === "webtoon" ||
+      data.mediaType === "photo"
+    ) {
+      return (
+        <MangaReader
+          itemId={viewerItem.id}
+          title={viewerItem.title}
+          mediaType={data.mediaType === "webtoon" ? "webtoon" : "manga"}
+          playlist={data.items.map((i) => ({
+            id: i.id,
+            title: i.title,
+            path: i.path,
+          }))}
+          onChangeItem={setViewerItemId}
+          onClose={() => setViewerItemId(null)}
+        />
+      );
+    }
+    if (data.mediaType === "video") {
+      return (
+        <VideoPlayer
+          itemId={viewerItem.id}
+          title={viewerItem.title}
+          initialProgress={viewerItem.progress}
+          playlist={data.items.map((i) => ({
+            id: i.id,
+            title: i.title,
+            progress: i.progress,
+          }))}
+          onChangeItem={setViewerItemId}
+          onClose={() => setViewerItemId(null)}
+          onThumbnailUpdated={() => {
+            load();
+            refresh();
+          }}
+        />
+      );
+    }
+    if (data.mediaType === "novel") {
+      return (
+        <NovelReader
+          itemId={viewerItem.id}
+          title={viewerItem.title}
+          onClose={() => setViewerItemId(null)}
+        />
+      );
+    }
+  }
+
   return (
     <div className="min-h-full">
       <header className="border-b border-[var(--line)] bg-[#f7f9f8]/80">
@@ -215,7 +272,7 @@ export function SeriesDetailView({
                 {!thumbFailed ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={`/api/thumbnails/${data.id}`}
+                    src={`/api/thumbnails/${data.id}?t=${data.updatedAt}`}
                     alt={data.title}
                     className="h-full w-full object-cover"
                     onError={() => setThumbFailed(true)}
@@ -281,16 +338,18 @@ export function SeriesDetailView({
                       <dt className="text-[var(--ink-faint)]">更新时间</dt>
                       <dd>{formatDate(data.updatedAt)}</dd>
                     </div>
-                    {data.captureDate && (
+                    {data.captureDate && data.mediaType === "video" && (
                       <div className="flex justify-between gap-2">
                         <dt className="text-[var(--ink-faint)]">拍摄日期</dt>
                         <dd>{formatDate(data.captureDate)}</dd>
                       </div>
                     )}
-                    <div className="flex justify-between gap-2">
-                      <dt className="text-[var(--ink-faint)]">进度</dt>
-                      <dd>{Math.round(data.progress * 100)}%</dd>
-                    </div>
+                    {data.mediaType === "video" && (
+                      <div className="flex justify-between gap-2">
+                        <dt className="text-[var(--ink-faint)]">进度</dt>
+                        <dd>{Math.round(data.progress * 100)}%</dd>
+                      </div>
+                    )}
                   </dl>
                 </div>
               </div>
@@ -342,10 +401,15 @@ export function SeriesDetailView({
                       onClick={() => openItem(item)}
                       className="flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-[var(--bg)]"
                     >
-                      <div className="relative h-12 w-10 shrink-0 overflow-hidden rounded-lg bg-[var(--accent-soft)]">
+                      <div
+                        className={cn(
+                          "relative shrink-0 overflow-hidden rounded-lg bg-[var(--accent-soft)]",
+                          data.mediaType === "video" ? "h-14 w-24" : "h-12 w-10"
+                        )}
+                      >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
-                          src={`/api/thumbnails/item/${item.id}`}
+                          src={`/api/thumbnails/item/${item.id}?t=${item.updatedAt}`}
                           alt=""
                           className="absolute inset-0 z-[1] h-full w-full object-cover"
                           onError={(e) => {
@@ -371,7 +435,9 @@ export function SeriesDetailView({
                         <p className="truncate text-xs text-[var(--ink-faint)]" title={item.path}>
                           {formatBytes(item.fileSize)}
                           {item.duration != null && ` · ${formatDuration(item.duration)}`}
-                          {item.progress > 0 && ` · ${Math.round(item.progress * 100)}%`}
+                          {data.mediaType === "video" &&
+                            item.progress > 0 &&
+                            ` · ${Math.round(item.progress * 100)}%`}
                           {" · "}
                           {item.path}
                         </p>
@@ -388,49 +454,6 @@ export function SeriesDetailView({
             </div>
           </section>
         </div>
-      )}
-
-      {isActive && viewerItem && data && (
-        <>
-          {(data.mediaType === "manga" || data.mediaType === "webtoon") && (
-            <MangaReader
-              itemId={viewerItem.id}
-              title={viewerItem.title}
-              mediaType={data.mediaType}
-              playlist={data.items.map((i) => ({
-                id: i.id,
-                title: i.title,
-                path: i.path,
-              }))}
-              onChangeItem={setViewerItemId}
-              onClose={() => setViewerItemId(null)}
-            />
-          )}
-          {data.mediaType === "video" && (
-            <VideoPlayer
-              itemId={viewerItem.id}
-              title={viewerItem.title}
-              playlist={data.items.map((i) => ({ id: i.id, title: i.title }))}
-              onChangeItem={setViewerItemId}
-              onClose={() => setViewerItemId(null)}
-            />
-          )}
-          {data.mediaType === "novel" && (
-            <NovelReader
-              itemId={viewerItem.id}
-              title={viewerItem.title}
-              onClose={() => setViewerItemId(null)}
-            />
-          )}
-          {data.mediaType === "photo" && (
-            <PhotoViewer
-              items={data.items}
-              currentId={viewerItem.id}
-              onClose={() => setViewerItemId(null)}
-              onNavigate={setViewerItemId}
-            />
-          )}
-        </>
       )}
     </div>
   );

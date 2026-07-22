@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Star, Check } from "lucide-react";
 import { useLibrary, type SeriesCard } from "@/lib/store";
 import { cn, formatDate } from "@/lib/utils";
@@ -23,7 +23,7 @@ function RatingStars({ rating }: { rating: number }) {
   );
 }
 
-function SeriesThumb({ series }: { series: SeriesCard }) {
+function SeriesThumb({ series, mediaType }: { series: SeriesCard; mediaType: string }) {
   const [failed, setFailed] = useState(false);
   const hues = ["#1f6f6a", "#2d4a6f", "#6f4a2d", "#4a6f3a", "#6f2d4a", "#3a4a6f"];
   const hue = hues[(series.title.charCodeAt(0) || 0) % hues.length];
@@ -52,7 +52,7 @@ function SeriesThumb({ series }: { series: SeriesCard }) {
           </span>
         </div>
       )}
-      {series.progress > 0 && (
+      {mediaType === "video" && series.progress > 0 && (
         <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/30">
           <div
             className="h-full bg-[var(--accent-hot)]"
@@ -64,8 +64,106 @@ function SeriesThumb({ series }: { series: SeriesCard }) {
   );
 }
 
+type DragBox = { x0: number; y0: number; x1: number; y1: number };
+
+function rectsIntersect(
+  a: { left: number; top: number; right: number; bottom: number },
+  b: { left: number; top: number; right: number; bottom: number }
+) {
+  return !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
+}
+
 export function SeriesGrid() {
-  const { series, loading, selectedIds, toggleSelect, mediaType, openSeriesTab } = useLibrary();
+  const {
+    series,
+    loading,
+    selectedIds,
+    toggleSelect,
+    setSelectedIds,
+    clearSelection,
+    mediaType,
+    openSeriesTab,
+  } = useLibrary();
+  const gridRef = useRef<HTMLDivElement>(null);
+  const cardRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const [drag, setDrag] = useState<DragBox | null>(null);
+  const dragStart = useRef<{ x: number; y: number; additive: boolean } | null>(null);
+  const didDrag = useRef(false);
+
+  const onGridMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      if (e.button !== 0) return;
+      // 点在卡片上不启动框选
+      if ((e.target as HTMLElement).closest("[data-series-card]")) return;
+      didDrag.current = false;
+      dragStart.current = {
+        x: e.clientX,
+        y: e.clientY,
+        additive: e.metaKey || e.ctrlKey || e.shiftKey,
+      };
+      setDrag({ x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY });
+
+      const onMove = (ev: MouseEvent) => {
+        if (!dragStart.current) return;
+        const dx = Math.abs(ev.clientX - dragStart.current.x);
+        const dy = Math.abs(ev.clientY - dragStart.current.y);
+        if (dx > 4 || dy > 4) didDrag.current = true;
+        setDrag({
+          x0: dragStart.current.x,
+          y0: dragStart.current.y,
+          x1: ev.clientX,
+          y1: ev.clientY,
+        });
+      };
+
+      const onUp = (ev: MouseEvent) => {
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+        const start = dragStart.current;
+        dragStart.current = null;
+        setDrag(null);
+        if (!start) return;
+
+        // 点空白（未拖拽）：退出多选
+        if (!didDrag.current) {
+          if (!start.additive) clearSelection();
+          return;
+        }
+
+        const box = {
+          left: Math.min(start.x, ev.clientX),
+          top: Math.min(start.y, ev.clientY),
+          right: Math.max(start.x, ev.clientX),
+          bottom: Math.max(start.y, ev.clientY),
+        };
+
+        const hit = new Set<string>();
+        for (const [id, el] of cardRefs.current) {
+          const r = el.getBoundingClientRect();
+          if (
+            rectsIntersect(box, {
+              left: r.left,
+              top: r.top,
+              right: r.right,
+              bottom: r.bottom,
+            })
+          ) {
+            hit.add(id);
+          }
+        }
+
+        if (start.additive) {
+          setSelectedIds(new Set([...selectedIds, ...hit]));
+        } else {
+          setSelectedIds(hit);
+        }
+      };
+
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    },
+    [selectedIds, setSelectedIds, clearSelection]
+  );
 
   if (loading) {
     return (
@@ -96,13 +194,31 @@ export function SeriesGrid() {
     );
   }
 
+  const boxStyle = drag
+    ? {
+        left: Math.min(drag.x0, drag.x1),
+        top: Math.min(drag.y0, drag.y1),
+        width: Math.abs(drag.x1 - drag.x0),
+        height: Math.abs(drag.y1 - drag.y0),
+      }
+    : null;
+
   return (
-    <div className="mx-auto grid max-w-[1600px] grid-cols-2 gap-4 px-5 pb-28 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+    <div
+      ref={gridRef}
+      className="relative mx-auto grid min-h-full max-w-[1600px] grid-cols-2 content-start gap-4 px-5 pb-28 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 select-none"
+      onMouseDown={onGridMouseDown}
+    >
       {series.map((s, idx) => {
         const selected = selectedIds.has(s.id);
         return (
           <article
             key={s.id}
+            data-series-card
+            ref={(el) => {
+              if (el) cardRefs.current.set(s.id, el);
+              else cardRefs.current.delete(s.id);
+            }}
             className={cn(
               "group relative cursor-pointer overflow-hidden rounded-[14px] border bg-white transition-all animate-fade-up",
               selected
@@ -110,13 +226,19 @@ export function SeriesGrid() {
                 : "border-[var(--line)] hover:-translate-y-0.5 hover:shadow-lg hover:shadow-teal-900/5"
             )}
             style={{ animationDelay: `${Math.min(idx, 20) * 30}ms` }}
-            onClick={() =>
+            onClick={(e) => {
+              if (didDrag.current) return;
+              // ⌘/Ctrl 点击：多选；普通单击：始终打开
+              if (e.metaKey || e.ctrlKey) {
+                toggleSelect(s.id);
+                return;
+              }
               openSeriesTab({
                 seriesId: s.id,
                 title: s.title,
                 mediaType: s.mediaType,
-              })
-            }
+              });
+            }}
             onContextMenu={(e) => {
               e.preventDefault();
               toggleSelect(s.id);
@@ -137,7 +259,7 @@ export function SeriesGrid() {
               <Check className="h-3.5 w-3.5" />
             </button>
 
-            <SeriesThumb series={s} />
+            <SeriesThumb series={s} mediaType={mediaType} />
 
             <div className="space-y-1.5 p-3">
               <h3 className="line-clamp-2 text-sm font-medium leading-snug">{s.title}</h3>
@@ -172,6 +294,13 @@ export function SeriesGrid() {
           </article>
         );
       })}
+
+      {boxStyle && (
+        <div
+          className="pointer-events-none fixed z-50 border border-[var(--accent)] bg-[var(--accent)]/15"
+          style={boxStyle}
+        />
+      )}
     </div>
   );
 }

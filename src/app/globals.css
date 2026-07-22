@@ -97,31 +97,72 @@ body {
   animation: pulse-soft 1.6s ease-in-out infinite;
 }
 
-/* 视频进度条：透明轨道，自定义拇指 */
+/* 标签切换短时虚化：只播一次后卸载，避免常驻 blur 拖性能 */
+@keyframes soft-veil {
+  0% {
+    opacity: 0;
+  }
+  40% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.animate-soft-veil {
+  animation: soft-veil 200ms ease-out forwards;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  will-change: opacity;
+  contain: strict;
+}
+
+/* 播放器淡入：仅 opacity，无 blur */
+@keyframes viewer-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-viewer-in {
+  animation: viewer-in 160ms ease-out both;
+}
+
+/* 视频进度条：8px 轨道 + 12px 拇指（居中） */
+.video-scrubber {
+  margin: 0;
+}
 .video-scrubber::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
+  margin-top: -2px; /* (12 - 8) / 2 */
   border-radius: 999px;
   background: #fff;
-  box-shadow: 0 0 0 2px rgba(31, 111, 106, 0.9);
+  box-shadow: 0 0 0 2px rgba(31, 111, 106, 0.85);
   cursor: pointer;
 }
 .video-scrubber::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   border: none;
   border-radius: 999px;
   background: #fff;
-  box-shadow: 0 0 0 2px rgba(31, 111, 106, 0.9);
+  box-shadow: 0 0 0 2px rgba(31, 111, 106, 0.85);
   cursor: pointer;
 }
 .video-scrubber::-webkit-slider-runnable-track {
-  height: 6px;
+  height: 8px;
+  border-radius: 999px;
   background: transparent;
 }
 .video-scrubber::-moz-range-track {
-  height: 6px;
+  height: 8px;
+  border-radius: 999px;
   background: transparent;
 }

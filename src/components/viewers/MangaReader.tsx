@@ -260,7 +260,7 @@ export function MangaReader({
         : "—";
 
   return (
-    <FullscreenPortal className="fixed inset-0 z-[200] flex flex-col bg-[#0f1415]">
+    <FullscreenPortal className="fixed inset-0 z-[300] flex flex-col bg-[#0f1415] animate-viewer-in">
       <header
         className={`flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-white/90 transition-opacity ${
           chromeVisible ? "opacity-100" : "opacity-0 pointer-events-none"

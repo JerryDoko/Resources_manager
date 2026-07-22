@@ -119,11 +119,21 @@ export function SettingsPanel() {
         return;
       }
       const errHint =
-        data.scan?.errors?.length > 0 ? ` · 警告 ${data.scan.errors.length}` : "";
-      setScanMsg(
-        `完成：扫描 ${data.scan.scanned} · 新增 ${data.scan.added} · 系列 ${data.scan.seriesCreated}${errHint}`
-      );
-      setPath("");
+        data.scan?.errors?.length > 0
+          ? ` · ${data.scan.errors.slice(0, 2).join("；")}${
+              data.scan.errors.length > 2 ? "…" : ""
+            }`
+          : "";
+      if (data.scan?.scanned > 0 && data.scan?.added === 0 && data.scan?.updated === 0) {
+        setScanMsg(
+          `未导入新内容（扫描到 ${data.scan.scanned} 个文件）。${errHint || "可能已在库中，或类型与文件扩展名不匹配。"}`
+        );
+      } else {
+        setScanMsg(
+          `完成：扫描 ${data.scan.scanned} · 新增 ${data.scan.added} · 系列 ${data.scan.seriesCreated}${errHint}`
+        );
+      }
+      if (data.scan?.added > 0) setPath("");
       await load();
       await refresh();
     } catch (e) {
@@ -398,23 +408,6 @@ export function SettingsPanel() {
                 />
               </label>
             </div>
-          </section>
-
-          <section className="rounded-xl bg-[var(--accent-soft)]/50 p-4 text-xs leading-relaxed text-[var(--ink-muted)]">
-            <p className="font-medium text-[var(--accent)]">已实现能力</p>
-            <ul className="mt-2 list-disc space-y-1 pl-4">
-              <li>六种媒体类型统一库 · 标题栏切换</li>
-              <li>访达选择文件夹 · 扫描时自动生成缩略图</li>
-              <li>文件夹扫描 · [作者] 标题解析 · 话数自动归入系列</li>
-              <li>系列详情页 · 标签/评分 · 阅读观看进度</li>
-              <li>漫画/条漫阅读器（含 zip/cbz）· 视频/音乐/照片/小说</li>
-              <li>SQLite 本地存储 · 备份恢复</li>
-            </ul>
-            <p className="mt-3 font-medium text-[var(--accent)]">规划中</p>
-            <ul className="mt-2 list-disc space-y-1 pl-4">
-              <li>拍摄日历 / GPS 地图 · 重复检测 · 本地 AI 气泡翻译</li>
-              <li>一键远程隧道 · 视频帧缩略图</li>
-            </ul>
           </section>
         </div>
       </div>

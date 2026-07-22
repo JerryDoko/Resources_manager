@@ -149,6 +149,19 @@ export function deleteSeries(id: string) {
   db.delete(schema.series).where(eq(schema.series.id, id)).run();
 }
 
+/** 仅从库中移除系列索引，不删除磁盘文件 */
+export function deleteSeriesMany(ids: string[]) {
+  const db = getDb();
+  let removed = 0;
+  for (const id of ids) {
+    const existed = db.select().from(schema.series).where(eq(schema.series.id, id)).get();
+    if (!existed) continue;
+    db.delete(schema.series).where(eq(schema.series.id, id)).run();
+    removed++;
+  }
+  return { removed };
+}
+
 export function updateItemProgress(id: string, progress: number) {
   const db = getDb();
   const now = Date.now();
@@ -173,6 +186,65 @@ export function updateItemProgress(id: string, progress: number) {
       .where(eq(schema.series.id, item.seriesId))
       .run();
   }
+}
+
+/** 批量重置系列内条目进度（及系列平均进度） */
+export function resetSeriesProgress(seriesIds: string[]) {
+  const db = getDb();
+  const now = Date.now();
+  let items = 0;
+  for (const seriesId of seriesIds) {
+    const r = db
+      .update(schema.mediaItems)
+      .set({ progress: 0, updatedAt: now })
+      .where(eq(schema.mediaItems.seriesId, seriesId))
+      .run();
+    items += r.changes;
+    db.update(schema.series)
+      .set({ progress: 0, updatedAt: now })
+      .where(eq(schema.series.id, seriesId))
+      .run();
+  }
+  return { series: seriesIds.length, items };
+}
+
+/** 按系列顺序拼接条目，用于批量连续打开 */
+export function listItemsForSeriesIds(seriesIds: string[]) {
+  const db = getDb();
+  const out: {
+    id: string;
+    title: string;
+    path: string;
+    seriesId: string;
+    seriesTitle: string;
+    mediaType: string;
+    progress: number;
+    sortOrder: number;
+  }[] = [];
+
+  for (const seriesId of seriesIds) {
+    const s = db.select().from(schema.series).where(eq(schema.series.id, seriesId)).get();
+    if (!s) continue;
+    const items = db
+      .select()
+      .from(schema.mediaItems)
+      .where(eq(schema.mediaItems.seriesId, seriesId))
+      .all()
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.title.localeCompare(b.title, undefined, { numeric: true }));
+    for (const it of items) {
+      out.push({
+        id: it.id,
+        title: it.title,
+        path: it.path,
+        seriesId: s.id,
+        seriesTitle: s.title,
+        mediaType: it.mediaType,
+        progress: it.progress,
+        sortOrder: it.sortOrder,
+      });
+    }
+  }
+  return out;
 }
 
 export function reorderItems(seriesId: string, orderedIds: string[]) {

@@ -42,7 +42,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
   return new NextResponse(buf, {
     headers: {
       "Content-Type": "image/webp",
-      "Cache-Control": "private, max-age=86400",
+      "Cache-Control": "private, max-age=120",
     },
   });
 }

@@ -28,7 +28,8 @@ const TYPE_ICONS: Record<MediaType, React.ComponentType<{ className?: string }>>
 const TYPES: MediaType[] = ["manga", "webtoon", "novel", "video", "music", "photo"];
 
 export function TitleBar() {
-  const { mediaType, setMediaType, stats, setShowSettings, total, activateTab } = useLibrary();
+  const { mediaType, setMediaType, stats, setShowSettings, total, activateTab, clearSelection } =
+    useLibrary();
   const [showProfiles, setShowProfiles] = useState(false);
   const clickRef = useRef({ count: 0, timer: 0 as ReturnType<typeof setTimeout> | 0 });
 
@@ -88,10 +89,11 @@ export function TitleBar() {
               return (
                 <button
                   key={t}
-                  onClick={() => {
-                    setMediaType(t);
-                    activateTab(LIBRARY_TAB_ID);
-                  }}
+                onClick={() => {
+                  setMediaType(t);
+                  clearSelection();
+                  activateTab(LIBRARY_TAB_ID);
+                }}
                   className={cn(
                     "group flex items-center gap-2 rounded-full px-3.5 py-2 text-sm transition-all",
                     active

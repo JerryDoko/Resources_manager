@@ -29,6 +29,20 @@ export type WorkspaceTab =
       mediaType: string;
     };
 
+export interface BatchPlaylistItem {
+  id: string;
+  title: string;
+  seriesTitle: string;
+  progress: number;
+  path?: string;
+}
+
+export interface BatchSession {
+  mediaType: "photo" | "video";
+  items: BatchPlaylistItem[];
+  currentId: string;
+}
+
 interface LibraryContextValue {
   mediaType: MediaType;
   setMediaType: (t: MediaType) => void;
@@ -47,6 +61,7 @@ interface LibraryContextValue {
   loading: boolean;
   selectedIds: Set<string>;
   toggleSelect: (id: string) => void;
+  setSelectedIds: (ids: Set<string>) => void;
   clearSelection: () => void;
   refresh: () => Promise<void>;
   refreshTags: () => Promise<void>;
@@ -67,6 +82,10 @@ interface LibraryContextValue {
     tabId: string,
     patch: Partial<Pick<Extract<WorkspaceTab, { kind: "series" }>, "title" | "mediaType">>
   ) => void;
+  batchSession: BatchSession | null;
+  openBatchSession: (session: BatchSession) => void;
+  setBatchCurrentId: (id: string) => void;
+  closeBatchSession: () => void;
 }
 
 const LibraryContext = createContext<LibraryContextValue | null>(null);
@@ -95,6 +114,7 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
     { id: LIBRARY_TAB_ID, kind: "library", title: "资源库" },
   ]);
   const [activeTabId, setActiveTabId] = useState<string>(LIBRARY_TAB_ID);
+  const [batchSession, setBatchSession] = useState<BatchSession | null>(null);
 
   const refreshTags = useCallback(async () => {
     const res = await fetch("/api/tags", { signal: AbortSignal.timeout(10000) });
@@ -143,6 +163,16 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
+
+  const openBatchSession = useCallback((session: BatchSession) => {
+    setBatchSession(session);
+  }, []);
+
+  const setBatchCurrentId = useCallback((id: string) => {
+    setBatchSession((s) => (s ? { ...s, currentId: id } : s));
+  }, []);
+
+  const closeBatchSession = useCallback(() => setBatchSession(null), []);
 
   const activateTab = useCallback((id: string) => {
     setActiveTabId(id);
@@ -235,6 +265,7 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
       loading,
       selectedIds,
       toggleSelect,
+      setSelectedIds,
       clearSelection,
       refresh,
       refreshTags,
@@ -248,6 +279,10 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
       closeTab,
       openSeriesTab,
       updateTabMeta,
+      batchSession,
+      openBatchSession,
+      setBatchCurrentId,
+      closeBatchSession,
     }),
     [
       mediaType,
@@ -273,6 +308,10 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
       closeTab,
       openSeriesTab,
       updateTabMeta,
+      batchSession,
+      openBatchSession,
+      setBatchCurrentId,
+      closeBatchSession,
     ]
   );
 

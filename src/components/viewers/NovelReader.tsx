@@ -105,7 +105,7 @@ function Shell({
   toolbar?: React.ReactNode;
 }) {
   return (
-    <FullscreenPortal className="fixed inset-0 z-[200] flex flex-col bg-[#f4f0e6]">
+    <FullscreenPortal className="fixed inset-0 z-[300] flex flex-col bg-[#f4f0e6] animate-viewer-in">
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-[#e5dfd2] px-4 py-3">
         <div className="min-w-0">
           <p className="text-display truncate text-lg font-semibold text-[#2a2418]">

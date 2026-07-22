@@ -47,7 +47,7 @@ export function PhotoViewer({ items, currentId, onClose, onNavigate }: Props) {
   const pageText = `${index + 1} / ${items.length}`;
 
   return (
-    <FullscreenPortal className="fixed inset-0 z-[200] flex flex-col bg-[#0f1415]">
+    <FullscreenPortal className="fixed inset-0 z-[300] flex flex-col bg-[#0f1415] animate-viewer-in">
       <header
         className={`flex shrink-0 items-center justify-between px-4 py-3 text-white/90 transition-opacity ${
           chromeVisible ? "opacity-100" : "opacity-0 pointer-events-none"

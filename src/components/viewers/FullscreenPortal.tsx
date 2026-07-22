@@ -4,8 +4,8 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 /**
- * 将阅读器挂到 body，避免被标签页 overflow 容器裁切；
- * 并尽量进入系统全屏（失败则仍铺满整个应用窗口）。
+ * 将阅读器挂到 body，盖住标签栏/标题栏，避免与详情页叠层。
+ * 仅用 CSS 铺满窗口（不调系统全屏），减少 Electron 下双层 UI 问题。
  */
 export function FullscreenPortal({
   children,
@@ -17,37 +17,19 @@ export function FullscreenPortal({
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const el = rootRef.current;
-    if (!el) return;
-
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-
-    const req =
-      el.requestFullscreen?.bind(el) ||
-      // Safari
-      (el as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> })
-        .webkitRequestFullscreen?.bind(el);
-    req?.().catch(() => {
-      /* 用户手势外或策略禁止时忽略，CSS 全屏仍有效 */
-    });
-
+    document.body.dataset.rmViewer = "1";
     return () => {
       document.body.style.overflow = prevOverflow;
-      const doc = document as Document & {
-        webkitFullscreenElement?: Element | null;
-        webkitExitFullscreen?: () => Promise<void>;
-      };
-      if (document.fullscreenElement || doc.webkitFullscreenElement) {
-        (document.exitFullscreen || doc.webkitExitFullscreen)?.call(document).catch(() => {});
-      }
+      delete document.body.dataset.rmViewer;
     };
   }, []);
 
   if (typeof document === "undefined") return null;
 
   return createPortal(
-    <div ref={rootRef} className={className}>
+    <div ref={rootRef} className={className} data-rm-fullscreen-viewer>
       {children}
     </div>,
     document.body

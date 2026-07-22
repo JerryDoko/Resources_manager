@@ -10,6 +10,8 @@ import {
   Camera,
   ChevronLeft,
   ChevronRight,
+  Download,
+  ImagePlus,
 } from "lucide-react";
 import {
   DEFAULT_VIDEO_SHORTCUTS,
@@ -25,6 +27,7 @@ import { FullscreenPortal } from "./FullscreenPortal";
 export interface PlaylistItem {
   id: string;
   title: string;
+  progress?: number;
 }
 
 interface Props {
@@ -33,6 +36,10 @@ interface Props {
   onClose: () => void;
   playlist?: PlaylistItem[];
   onChangeItem?: (id: string) => void;
+  /** 0–1，打开时从该进度续播 */
+  initialProgress?: number;
+  /** 设为详情封面后回调（刷新详情） */
+  onThumbnailUpdated?: () => void;
 }
 
 type HoldMode = "none" | "speed" | "rewind";
@@ -43,6 +50,8 @@ export function VideoPlayer({
   onClose,
   playlist = [],
   onChangeItem,
+  initialProgress = 0,
+  onThumbnailUpdated,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
@@ -57,6 +66,8 @@ export function VideoPlayer({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [buffered, setBuffered] = useState(0);
+  const [capturePreview, setCapturePreview] = useState<string | null>(null);
+  const [captureBusy, setCaptureBusy] = useState(false);
   const scrubbing = useRef(false);
 
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -124,24 +135,61 @@ export function VideoPlayer({
 
   const captureFrame = useCallback(() => {
     const v = videoRef.current;
-    if (!v) return;
+    if (!v || !v.videoWidth) return;
     const canvas = document.createElement("canvas");
     canvas.width = v.videoWidth;
     canvas.height = v.videoHeight;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.drawImage(v, 0, 0);
-    canvas.toBlob((blob) => {
-      if (!blob) return;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${title}-frame.png`;
-      a.click();
-      URL.revokeObjectURL(url);
-      flash("已截取当前帧");
-    });
-  }, [title, flash]);
+    try {
+      const dataUrl = canvas.toDataURL("image/png");
+      setCapturePreview(dataUrl);
+      if (!v.paused) v.pause();
+    } catch {
+      flash("截帧失败");
+    }
+  }, [flash]);
+
+  const saveCaptureLocal = useCallback(() => {
+    if (!capturePreview) return;
+    const a = document.createElement("a");
+    a.href = capturePreview;
+    a.download = `${title}-frame.png`;
+    a.click();
+    flash("已保存到本地");
+    setCapturePreview(null);
+  }, [capturePreview, title, flash]);
+
+  const saveCaptureAsThumb = useCallback(async () => {
+    if (!capturePreview) return;
+    setCaptureBusy(true);
+    try {
+      const res = await fetch("/api/thumbnails/capture", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          itemId,
+          dataUrl: capturePreview,
+          // 详情页封面 + 当前视频列表缩略图
+          targets: ["series", "item"],
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        flash(err.error || "设置缩略图失败");
+        return;
+      }
+      flash("已设为详情页缩略图");
+      setCapturePreview(null);
+      onThumbnailUpdated?.();
+    } catch {
+      flash("设置缩略图失败");
+    } finally {
+      setCaptureBusy(false);
+    }
+  }, [capturePreview, itemId, flash, onThumbnailUpdated]);
 
   const clearHold = useCallback(() => {
     if (holdTimer.current) {
@@ -353,16 +401,30 @@ export function VideoPlayer({
     return () => v.removeEventListener("timeupdate", onTime);
   }, [ab]);
 
-  // Autoplay when switching items
+  // Autoplay when switching items；从已存进度续播
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
     setCurrentTime(0);
     setDuration(0);
     setBuffered(0);
+    const fromPlaylist = playlist.find((p) => p.id === itemId)?.progress;
+    const resume =
+      typeof fromPlaylist === "number"
+        ? fromPlaylist
+        : initialProgress;
+    const applyResume = () => {
+      if (v.duration && resume > 0.01 && resume < 0.98) {
+        v.currentTime = v.duration * resume;
+        setCurrentTime(v.currentTime);
+      }
+    };
+    const onMeta = () => applyResume();
+    v.addEventListener("loadedmetadata", onMeta);
     v.load();
     v.play().catch(() => {});
-  }, [itemId]);
+    return () => v.removeEventListener("loadedmetadata", onMeta);
+  }, [itemId, initialProgress, playlist]);
 
   useEffect(() => {
     const v = videoRef.current;
@@ -415,7 +477,7 @@ export function VideoPlayer({
   ].join(" · ");
 
   return (
-    <FullscreenPortal className="fixed inset-0 z-[200] flex flex-col bg-black">
+    <FullscreenPortal className="fixed inset-0 z-[300] flex flex-col bg-black animate-viewer-in">
       <header className="flex shrink-0 items-center justify-between gap-3 px-4 py-3 text-white/90">
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{title}</p>
@@ -497,14 +559,11 @@ export function VideoPlayer({
         )}
       </div>
 
-      <div className="flex shrink-0 flex-col gap-2 px-4 pb-4 pt-2 text-white">
-        {/* 进度条 */}
-        <div className="mx-auto flex w-full max-w-3xl items-center gap-3">
-          <span className="w-12 shrink-0 text-right font-mono text-xs tabular-nums text-white/70">
-            {formatDuration(currentTime)}
-          </span>
-          <div className="relative h-5 flex-1">
-            <div className="absolute left-0 right-0 top-1/2 h-1.5 -translate-y-1/2 overflow-hidden rounded-full bg-white/20">
+      <div className="flex shrink-0 flex-col gap-3 px-4 pb-4 pt-2 text-white">
+        {/* 进度条：轨道与拇指同比例，时间在下方对齐 */}
+        <div className="mx-auto w-full max-w-3xl">
+          <div className="relative flex h-3 items-center">
+            <div className="pointer-events-none absolute left-0 right-0 top-1/2 h-2 -translate-y-1/2 overflow-hidden rounded-full bg-white/20">
               <div
                 className="absolute inset-y-0 left-0 bg-white/35"
                 style={{
@@ -514,7 +573,7 @@ export function VideoPlayer({
                 }}
               />
               <div
-                className="absolute inset-y-0 left-0 bg-[var(--accent)]"
+                className="absolute inset-y-0 left-0 rounded-full bg-[var(--accent)]"
                 style={{
                   width: duration
                     ? `${Math.min(100, (currentTime / duration) * 100)}%`
@@ -555,9 +614,10 @@ export function VideoPlayer({
               aria-label="播放进度"
             />
           </div>
-          <span className="w-12 shrink-0 font-mono text-xs tabular-nums text-white/70">
-            {formatDuration(duration)}
-          </span>
+          <div className="mt-1.5 flex justify-between font-mono text-[11px] tabular-nums text-white/65">
+            <span>{formatDuration(currentTime)}</span>
+            <span>{formatDuration(duration)}</span>
+          </div>
         </div>
 
         <div className="flex items-center justify-center gap-3">
@@ -603,6 +663,55 @@ export function VideoPlayer({
           )}
         </div>
       </div>
+
+      {capturePreview && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
+          <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-white/15 bg-[#1a1f20] shadow-2xl">
+            <div className="border-b border-white/10 px-4 py-3">
+              <p className="text-sm font-medium text-white">截取当前帧</p>
+              <p className="mt-0.5 text-xs text-white/50">选择保存方式</p>
+            </div>
+            <div className="bg-black/40 p-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={capturePreview}
+                alt="截帧预览"
+                className="mx-auto max-h-[42vh] w-auto rounded-lg object-contain"
+              />
+            </div>
+            <div className="flex flex-col gap-2 p-4 sm:flex-row">
+              <button
+                type="button"
+                disabled={captureBusy}
+                onClick={saveCaptureLocal}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-white/10 px-3 py-2.5 text-sm text-white hover:bg-white/15 disabled:opacity-50"
+              >
+                <Download className="h-4 w-4" />
+                保存到本地
+              </button>
+              <button
+                type="button"
+                disabled={captureBusy}
+                onClick={saveCaptureAsThumb}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[var(--accent)] px-3 py-2.5 text-sm text-white hover:brightness-110 disabled:opacity-50"
+              >
+                <ImagePlus className="h-4 w-4" />
+                设为详情页缩略图
+              </button>
+            </div>
+            <div className="border-t border-white/10 px-4 py-2.5 text-right">
+              <button
+                type="button"
+                disabled={captureBusy}
+                onClick={() => setCapturePreview(null)}
+                className="text-xs text-white/50 hover:text-white"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </FullscreenPortal>
   );
 }
