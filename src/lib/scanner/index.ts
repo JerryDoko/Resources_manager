@@ -27,29 +27,50 @@ function isDirEntry(entry: fs.Dirent, full: string): boolean {
   return false;
 }
 
-function walkDir(dir: string, maxDepth = 32, depth = 0): string[] {
-  if (depth > maxDepth) return [];
-  const results: string[] = [];
-  let entries: fs.Dirent[];
+function getRealPath(filePath: string): string | null {
   try {
-    entries = fs.readdirSync(dir, { withFileTypes: true });
+    return fs.realpathSync.native(filePath);
   } catch {
-    return results;
+    return null;
   }
+}
 
-  for (const entry of entries) {
-    if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
-    const full = path.join(dir, entry.name);
-    if (isDirEntry(entry, full)) {
-      results.push(...walkDir(full, maxDepth, depth + 1));
-    } else if (entry.isFile() || entry.isSymbolicLink()) {
-      try {
-        if (fs.statSync(full).isFile()) results.push(full);
-      } catch {
-        /* 忽略不可读文件 */
+function walkDir(dir: string, maxDepth = 32): string[] {
+  const results: string[] = [];
+  const visitedDirs = new Set<string>();
+  const pending: Array<{ dir: string; depth: number }> = [{ dir, depth: 0 }];
+
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current || current.depth > maxDepth) continue;
+
+    const realDir = getRealPath(current.dir);
+    if (!realDir || visitedDirs.has(realDir)) continue;
+    visitedDirs.add(realDir);
+
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(current.dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const entry = entries[i];
+      if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+      const full = path.join(current.dir, entry.name);
+      if (isDirEntry(entry, full)) {
+        pending.push({ dir: full, depth: current.depth + 1 });
+      } else if (entry.isFile() || entry.isSymbolicLink()) {
+        try {
+          if (fs.statSync(full).isFile()) results.push(full);
+        } catch {
+          /* 忽略不可读文件 */
+        }
       }
     }
   }
+
   return results;
 }
 

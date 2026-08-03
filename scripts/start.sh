@@ -59,7 +59,7 @@ case "$MODE" in
         done
       ) &
     fi
-    exec npm run dev -- -p "$PORT"
+    exec npm run dev -- -p "$PORT" -H 127.0.0.1
     ;;
   build)
     echo "→ 构建中…"
