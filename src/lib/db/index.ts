@@ -9,9 +9,12 @@ import {
   getProfileDataDir,
 } from "@/lib/profiles";
 
-let _db: ReturnType<typeof drizzle<typeof schema>> | null = null;
-let _sqlite: Database.Database | null = null;
-let _boundProfileId: string | null = null;
+type DbConnection = {
+  db: ReturnType<typeof drizzle<typeof schema>>;
+  sqlite: Database.Database;
+};
+
+const _connections = new Map<string, DbConnection>();
 let _booted = false;
 
 function ensureSchema(sqlite: Database.Database) {
@@ -119,27 +122,29 @@ function bootOnce() {
   }
 }
 
-export function closeDb() {
-  if (_sqlite) {
+export function closeDb(profileId?: string) {
+  const entries = profileId
+    ? ([[profileId, _connections.get(profileId)]].filter(([, conn]) => conn) as [
+        string,
+        DbConnection,
+      ][])
+    : Array.from(_connections.entries());
+
+  for (const [id, conn] of entries) {
     try {
-      _sqlite.close();
+      conn.sqlite.close();
     } catch {
       /* ignore */
     }
+    _connections.delete(id);
   }
-  _sqlite = null;
-  _db = null;
-  _boundProfileId = null;
 }
 
 export function getDb() {
   bootOnce();
   const profileId = getActiveProfileId();
-  if (_db && _boundProfileId === profileId) return _db;
-
-  if (_db && _boundProfileId !== profileId) {
-    closeDb();
-  }
+  const existing = _connections.get(profileId);
+  if (existing) return existing.db;
 
   const dataDir = getProfileDataDir(profileId);
   const dbPath = path.join(dataDir, "library.db");
@@ -152,19 +157,20 @@ export function getDb() {
     fs.mkdirSync(thumbsDir, { recursive: true });
   }
 
-  _sqlite = new Database(dbPath);
-  _sqlite.pragma("journal_mode = WAL");
-  _sqlite.pragma("foreign_keys = ON");
-  ensureSchema(_sqlite);
+  const sqlite = new Database(dbPath);
+  sqlite.pragma("journal_mode = WAL");
+  sqlite.pragma("foreign_keys = ON");
+  ensureSchema(sqlite);
 
-  _db = drizzle(_sqlite, { schema });
-  _boundProfileId = profileId;
-  return _db;
+  const conn = { db: drizzle(sqlite, { schema }), sqlite };
+  _connections.set(profileId, conn);
+  return conn.db;
 }
 
 export function getSqlite() {
+  const profileId = getActiveProfileId();
   getDb();
-  return _sqlite!;
+  return _connections.get(profileId)!.sqlite;
 }
 
 export function getDataDir() {

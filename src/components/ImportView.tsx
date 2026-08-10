@@ -26,6 +26,7 @@ export function ImportView() {
   const [adding, setAdding] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
 
   const typeLabel = MEDIA_TYPE_LABELS[mediaType];
   const filteredFolders = folders.filter((f) => f.mediaType === mediaType);
@@ -38,6 +39,7 @@ export function ImportView() {
     }
     const data = await res.json();
     setFolders(data.folders || []);
+    setActiveProfileId(data.activeProfileId || null);
   };
 
   useEffect(() => {
@@ -50,7 +52,11 @@ export function ImportView() {
       const res = await fetch("/api/folders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "browse", prompt: "选择媒体文件夹" }),
+        body: JSON.stringify({
+          action: "browse",
+          prompt: "选择媒体文件夹",
+          profileId: activeProfileId,
+        }),
         signal: AbortSignal.timeout(180000),
       });
       const data = await res.json();
@@ -72,7 +78,12 @@ export function ImportView() {
       const res = await fetch("/api/folders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "add", path: path.trim(), mediaType }),
+        body: JSON.stringify({
+          action: "add",
+          path: path.trim(),
+          mediaType,
+          profileId: activeProfileId,
+        }),
         signal: AbortSignal.timeout(600000),
       });
       const data = await res.json();
@@ -105,6 +116,7 @@ export function ImportView() {
           action: "scan",
           path: folder.path,
           mediaType: folder.mediaType,
+          profileId: activeProfileId,
         }),
         signal: AbortSignal.timeout(600000),
       });
@@ -129,7 +141,7 @@ export function ImportView() {
     await fetch("/api/folders", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "remove", id }),
+      body: JSON.stringify({ action: "remove", id, profileId: activeProfileId }),
       signal: AbortSignal.timeout(10000),
     });
     await load();

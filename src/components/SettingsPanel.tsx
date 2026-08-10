@@ -31,6 +31,7 @@ export function SettingsPanel() {
   const [scanning, setScanning] = useState(false);
   const [scanMsg, setScanMsg] = useState<string | null>(null);
   const [storagePaths, setStoragePaths] = useState<StoragePaths | null>(null);
+  const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
   const [settings, setSettings] = useState({
     remoteEnabled: false,
     remoteSubdomain: "resources",
@@ -44,6 +45,7 @@ export function SettingsPanel() {
     ]);
     const fData = await fRes.json();
     const sData = await sRes.json();
+    setActiveProfileId(fData.activeProfileId || null);
     if (pRes.ok) setStoragePaths(await pRes.json());
     setFolders(fData.folders || []);
     setSettings({
@@ -64,7 +66,11 @@ export function SettingsPanel() {
       const res = await fetch("/api/folders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "browse", prompt: "选择媒体文件夹" }),
+        body: JSON.stringify({
+          action: "browse",
+          prompt: "选择媒体文件夹",
+          profileId: activeProfileId,
+        }),
         signal: AbortSignal.timeout(180000),
       });
       const data = await res.json();
@@ -90,7 +96,7 @@ export function SettingsPanel() {
       const res = await fetch("/api/folders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "thumbnails" }),
+        body: JSON.stringify({ action: "thumbnails", profileId: activeProfileId }),
         signal: AbortSignal.timeout(300000),
       });
       const data = await res.json();
@@ -123,7 +129,12 @@ export function SettingsPanel() {
       const res = await fetch("/api/folders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "add", path: path.trim(), mediaType: type }),
+        body: JSON.stringify({
+          action: "add",
+          path: path.trim(),
+          mediaType: type,
+          profileId: activeProfileId,
+        }),
         signal: AbortSignal.timeout(600000),
       });
       const data = await parseJsonSafe(res);
@@ -168,7 +179,7 @@ export function SettingsPanel() {
       const res = await fetch("/api/folders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "scan" }),
+        body: JSON.stringify({ action: "scan", profileId: activeProfileId }),
         signal: AbortSignal.timeout(600000),
       });
       const data = await parseJsonSafe(res);
@@ -192,7 +203,7 @@ export function SettingsPanel() {
     await fetch("/api/folders", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "remove", id }),
+      body: JSON.stringify({ action: "remove", id, profileId: activeProfileId }),
       signal: AbortSignal.timeout(10000),
     });
     await load();

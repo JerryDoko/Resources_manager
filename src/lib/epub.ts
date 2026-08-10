@@ -28,6 +28,21 @@ function posixJoin(base: string, rel: string): string {
   return out.join("/");
 }
 
+function decodeHref(href: string): string {
+  try {
+    return decodeURIComponent(href);
+  } catch {
+    return href;
+  }
+}
+
+function isExternalHref(href: string): boolean {
+  return (
+    href.startsWith("#") ||
+    /^(?:https?:|data:|blob:|mailto:|tel:|javascript:)/i.test(href)
+  );
+}
+
 function stripHtml(html: string): string {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, "")
@@ -49,7 +64,12 @@ function stripHtml(html: string): string {
 }
 
 /** Sanitize chapter HTML for safe iframe/srcDoc rendering */
-export function sanitizeEpubHtml(html: string, baseHref: string, zipNames: Set<string>): string {
+export function sanitizeEpubHtml(
+  html: string,
+  baseHref: string,
+  zipNames: Set<string>,
+  assetUrlForHref?: (href: string) => string
+): string {
   // Remove scripts and on* handlers
   let out = html
     .replace(/<script[\s\S]*?<\/script>/gi, "")
@@ -61,7 +81,7 @@ export function sanitizeEpubHtml(html: string, baseHref: string, zipNames: Set<s
     body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB",serif;
       line-height:1.85;color:#2a2418;background:#f4f0e6;padding:1.5rem;max-width:42rem;margin:0 auto;
       font-size:1.05rem;word-break:break-word;}
-    img{max-width:100%;height:auto;}
+    img,svg image{max-width:100%;height:auto;}
     a{color:#1f6f6a;}
     h1,h2,h3{line-height:1.3;}
   </style>`;
@@ -74,10 +94,30 @@ export function sanitizeEpubHtml(html: string, baseHref: string, zipNames: Set<s
     out = `<!DOCTYPE html><html><head><meta charset="utf-8">${style}</head><body>${out}</body></html>`;
   }
 
-  // Note: image rewriting to blob URLs is handled client-side or via chapter asset API;
-  // for text-first reading we keep relative refs; images may 404 inside srcDoc which is ok.
-  void baseHref;
-  void zipNames;
+  if (assetUrlForHref) {
+    const rewrite = (href: string) => {
+      const raw = href.trim();
+      if (!raw || isExternalHref(raw)) return href;
+      const [withoutHash, hash = ""] = raw.split("#");
+      const normalized = decodeHref(posixJoin(baseHref, withoutHash));
+      if (!zipNames.has(normalized)) return href;
+      return `${assetUrlForHref(normalized)}${hash ? `#${hash}` : ""}`;
+    };
+
+    out = out.replace(
+      /\s(src|poster|xlink:href)\s*=\s*("[^"]*"|'[^']*')/gi,
+      (match, attr: string, quoted: string) => {
+        const quote = quoted[0];
+        const value = quoted.slice(1, -1);
+        return ` ${attr}=${quote}${rewrite(value)}${quote}`;
+      }
+    );
+
+    out = out.replace(/url\((["']?)([^"')]+)\1\)/gi, (_match, quote: string, value: string) => {
+      return `url(${quote}${rewrite(value)}${quote})`;
+    });
+  }
+
   return out;
 }
 
@@ -199,7 +239,8 @@ export async function parseEpub(filePath: string): Promise<EpubBook> {
 export async function readEpubChapter(
   filePath: string,
   chapterHref: string,
-  as: "html" | "text" = "html"
+  as: "html" | "text" = "html",
+  assetUrlForHref?: (href: string) => string
 ): Promise<{ html: string; text: string }> {
   const buf = fs.readFileSync(filePath);
   const zip = await JSZip.loadAsync(buf);
@@ -207,7 +248,22 @@ export async function readEpubChapter(
   if (!file) throw new Error(`章节不存在: ${chapterHref}`);
   const raw = await file.async("string");
   const names = new Set(Object.keys(zip.files));
-  const html = sanitizeEpubHtml(raw, chapterHref, names);
+  const html = sanitizeEpubHtml(raw, chapterHref, names, assetUrlForHref);
   const text = stripHtml(raw);
   return as === "text" ? { html, text } : { html, text };
+}
+
+export async function readEpubAsset(
+  filePath: string,
+  href: string
+): Promise<{ data: Buffer; href: string }> {
+  const buf = fs.readFileSync(filePath);
+  const zip = await JSZip.loadAsync(buf);
+  const normalized = decodeHref(href.replace(/\\/g, "/").replace(/^\/+/, "").split("#")[0]);
+  const file = zip.file(normalized);
+  if (!file || file.dir) throw new Error(`资源不存在: ${href}`);
+  return {
+    data: Buffer.from(await file.async("uint8array")),
+    href: normalized,
+  };
 }

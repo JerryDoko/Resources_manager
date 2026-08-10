@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, type HTMLAttributes, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 /**
@@ -10,10 +10,11 @@ import { createPortal } from "react-dom";
 export function FullscreenPortal({
   children,
   className,
+  ...props
 }: {
   children: ReactNode;
   className?: string;
-}) {
+} & Omit<HTMLAttributes<HTMLDivElement>, "children" | "className">) {
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -29,7 +30,7 @@ export function FullscreenPortal({
   if (typeof document === "undefined") return null;
 
   return createPortal(
-    <div ref={rootRef} className={className} data-rm-fullscreen-viewer>
+    <div ref={rootRef} className={className} data-rm-fullscreen-viewer {...props}>
       {children}
     </div>,
     document.body

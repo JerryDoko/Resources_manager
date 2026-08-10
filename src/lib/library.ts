@@ -101,9 +101,18 @@ export function listSeries(opts: {
 
     const pathRows = getSqlite()
       .prepare(
-        `SELECT series_id, path FROM media_items
-         WHERE series_id IN (${ids.map(() => "?").join(",")})
-         ORDER BY sort_order, title`
+        `SELECT series_id, path FROM (
+           SELECT
+             series_id,
+             path,
+             ROW_NUMBER() OVER (
+               PARTITION BY series_id
+               ORDER BY sort_order, title
+             ) AS rn
+           FROM media_items
+           WHERE series_id IN (${ids.map(() => "?").join(",")})
+         )
+         WHERE rn = 1`
       )
       .all(...ids) as { series_id: string; path: string }[];
 

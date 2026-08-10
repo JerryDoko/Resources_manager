@@ -208,6 +208,10 @@ function TxtReader({ itemId, title, onClose }: Props) {
 }
 
 function EpubReader({ itemId, title, onClose }: Props) {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const iframeCleanupRef = useRef<(() => void) | null>(null);
+  const switchCooldownRef = useRef(0);
+  const touchStartYRef = useRef<number | null>(null);
   const [chapters, setChapters] = useState<EpubChapter[]>([]);
   const [bookTitle, setBookTitle] = useState(title);
   const [index, setIndex] = useState(0);
@@ -279,15 +283,84 @@ function EpubReader({ itemId, title, onClose }: Props) {
     };
   }, [chapters, index, itemId]);
 
+  const switchChapter = useCallback(
+    (delta: -1 | 1) => {
+      if (Date.now() - switchCooldownRef.current < 650) return;
+      setIndex((i) => {
+        const next = Math.max(0, Math.min(chapters.length - 1, i + delta));
+        if (next !== i) switchCooldownRef.current = Date.now();
+        return next;
+      });
+    },
+    [chapters.length]
+  );
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "ArrowLeft") setIndex((i) => Math.max(0, i - 1));
-      if (e.key === "ArrowRight")
-        setIndex((i) => Math.min(chapters.length - 1, i + 1));
+      if (e.key === "ArrowLeft") switchChapter(-1);
+      if (e.key === "ArrowRight") switchChapter(1);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [chapters.length]);
+  }, [switchChapter]);
+
+  const attachIframeScrollHandlers = useCallback(() => {
+    iframeCleanupRef.current?.();
+    iframeCleanupRef.current = null;
+
+    const frame = iframeRef.current;
+    const win = frame?.contentWindow;
+    const doc = frame?.contentDocument;
+    if (!frame || !win || !doc) return;
+
+    win.scrollTo(0, 0);
+
+    const scrollEl = () => doc.scrollingElement || doc.documentElement;
+    const atTop = () => scrollEl().scrollTop <= 2;
+    const atBottom = () =>
+      scrollEl().scrollTop + win.innerHeight >= scrollEl().scrollHeight - 3;
+
+    const onWheel = (e: WheelEvent) => {
+      if (Math.abs(e.deltaY) < 4) return;
+      if (e.deltaY > 0 && atBottom()) {
+        e.preventDefault();
+        switchChapter(1);
+      } else if (e.deltaY < 0 && atTop()) {
+        e.preventDefault();
+        switchChapter(-1);
+      }
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      touchStartYRef.current = e.touches[0]?.clientY ?? null;
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      const startY = touchStartYRef.current;
+      touchStartYRef.current = null;
+      if (startY == null) return;
+      const endY = e.changedTouches[0]?.clientY ?? startY;
+      const delta = startY - endY;
+      if (delta > 40 && atBottom()) switchChapter(1);
+      if (delta < -40 && atTop()) switchChapter(-1);
+    };
+
+    win.addEventListener("wheel", onWheel, { passive: false });
+    win.addEventListener("touchstart", onTouchStart, { passive: true });
+    win.addEventListener("touchend", onTouchEnd, { passive: true });
+    iframeCleanupRef.current = () => {
+      win.removeEventListener("wheel", onWheel);
+      win.removeEventListener("touchstart", onTouchStart);
+      win.removeEventListener("touchend", onTouchEnd);
+    };
+  }, [switchChapter]);
+
+  useEffect(() => {
+    return () => {
+      iframeCleanupRef.current?.();
+      iframeCleanupRef.current = null;
+    };
+  }, []);
 
   const chapter = chapters[index];
 
@@ -358,11 +431,13 @@ function EpubReader({ itemId, title, onClose }: Props) {
         {error && <p className="p-8 text-red-700">{error}</p>}
         {!loading && !error && (
           <iframe
+            ref={iframeRef}
             title={chapter?.title || "chapter"}
             srcDoc={html.replace(
               /font-size:\s*[\d.]+rem/i,
               `font-size:${(fontSize / 16).toFixed(3)}rem`
             )}
+            onLoad={attachIframeScrollHandlers}
             className="h-full w-full flex-1 border-0 bg-[#f4f0e6]"
             sandbox="allow-same-origin"
           />

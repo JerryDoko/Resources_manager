@@ -5,6 +5,7 @@
 import fs from "fs";
 import path from "path";
 import { randomBytes } from "crypto";
+import { AsyncLocalStorage } from "async_hooks";
 
 export interface ProfileMeta {
   id: string;
@@ -18,6 +19,8 @@ export interface ProfilesRegistry {
   defaultId: string;
   profiles: ProfileMeta[];
 }
+
+const profileContext = new AsyncLocalStorage<string>();
 
 function getRootDataDir() {
   if (process.env.RESOURCES_MANAGER_DATA) {
@@ -105,6 +108,8 @@ export function loadRegistry(): ProfilesRegistry {
 }
 
 export function getActiveProfileId(): string {
+  const scopedProfileId = profileContext.getStore();
+  if (scopedProfileId) return scopedProfileId;
   // 启动时可用环境变量覆盖（仍写入 registry 的 active 优先，除非明确指定）
   if (process.env.RESOURCES_MANAGER_PROFILE) {
     return process.env.RESOURCES_MANAGER_PROFILE;
@@ -113,6 +118,12 @@ export function getActiveProfileId(): string {
   // 若有默认配置且尚未有会话覆盖，用 defaultId 作为冷启动 active
   // 实际 activeId 由 switch 维护；冷启动读 activeId，第一次安装等于 default
   return reg.activeId || reg.defaultId;
+}
+
+export function withProfile<T>(id: string, fn: () => T): T {
+  const reg = loadRegistry();
+  if (!reg.profiles.some((p) => p.id === id)) throw new Error("配置不存在");
+  return profileContext.run(id, fn);
 }
 
 export function getProfileDataDir(profileId?: string): string {

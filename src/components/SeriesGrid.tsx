@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Star, Check } from "lucide-react";
 import { useLibrary, type SeriesCard } from "@/lib/store";
 import { cn, formatDate } from "@/lib/utils";
@@ -83,7 +83,11 @@ function rectsIntersect(
 export function SeriesGrid() {
   const {
     series,
+    total,
     loading,
+    loadingMore,
+    hasMore,
+    loadMore,
     selectedIds,
     toggleSelect,
     setSelectedIds,
@@ -93,6 +97,7 @@ export function SeriesGrid() {
     libraryViewMode,
   } = useLibrary();
   const gridRef = useRef<HTMLDivElement>(null);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
   const cardRefs = useRef<Map<string, HTMLElement>>(new Map());
   const [drag, setDrag] = useState<DragBox | null>(null);
   const dragStart = useRef<{ x: number; y: number; additive: boolean } | null>(null);
@@ -173,6 +178,23 @@ export function SeriesGrid() {
     [selectedIds, setSelectedIds, clearSelection]
   );
 
+  useEffect(() => {
+    const el = loadMoreRef.current;
+    if (!el || loading || !hasMore) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          void loadMore();
+        }
+      },
+      { root: null, rootMargin: "720px 0px", threshold: 0.01 }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasMore, loadMore, loading, series.length]);
+
   if (loading) {
     return (
       <div className="mx-auto grid max-w-[1600px] grid-cols-2 gap-4 px-5 pb-28 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
@@ -212,110 +234,122 @@ export function SeriesGrid() {
     : null;
 
   return (
-    <div
-      ref={gridRef}
-      className="relative mx-auto grid min-h-full max-w-[1600px] grid-cols-2 content-start gap-4 px-5 pb-28 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 select-none"
-      onMouseDown={onGridMouseDown}
-    >
-      {series.map((s, idx) => {
-        const selected = selectedIds.has(s.id);
-        return (
-          <article
-            key={s.id}
-            data-series-card
-            ref={(el) => {
-              if (el) cardRefs.current.set(s.id, el);
-              else cardRefs.current.delete(s.id);
-            }}
-            className={cn(
-              "group relative cursor-pointer overflow-hidden rounded-2xl border transition-[border-color,box-shadow] animate-fade-up glass",
-              selected
-                ? "border-[var(--accent)] ring-2 ring-[var(--accent)]/25 shadow-lg shadow-violet-500/10"
-                : "border-[var(--line)] hover:border-[var(--accent)]/30 hover:shadow-md"
-            )}
-            style={{ animationDelay: `${Math.min(idx, 20) * 30}ms` }}
-            onClick={(e) => {
-              if (didDrag.current) return;
-              if (e.metaKey || e.ctrlKey) {
-                toggleSelect(s.id);
-                return;
-              }
-              openSeriesTab({
-                seriesId: s.id,
-                title: s.title,
-                mediaType: s.mediaType,
-              });
-            }}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              toggleSelect(s.id);
-            }}
-          >
-            <button
+    <>
+      <div
+        ref={gridRef}
+        className="relative mx-auto grid min-h-full max-w-[1600px] select-none grid-cols-2 content-start gap-4 px-5 pb-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
+        onMouseDown={onGridMouseDown}
+      >
+        {series.map((s, idx) => {
+          const selected = selectedIds.has(s.id);
+          return (
+            <article
+              key={s.id}
+              data-series-card
+              ref={(el) => {
+                if (el) cardRefs.current.set(s.id, el);
+                else cardRefs.current.delete(s.id);
+              }}
               className={cn(
-                "absolute left-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full border transition",
+                "group relative cursor-pointer overflow-hidden rounded-2xl border transition-[border-color,box-shadow] animate-fade-up glass",
                 selected
-                  ? "border-[var(--accent)] bg-[var(--accent)] text-white"
-                  : "border-white/50 bg-black/20 text-transparent opacity-0 group-hover:opacity-100"
+                  ? "border-[var(--accent)] ring-2 ring-[var(--accent)]/25 shadow-lg shadow-violet-500/10"
+                  : "border-[var(--line)] hover:border-[var(--accent)]/30 hover:shadow-md"
               )}
+              style={{ animationDelay: `${Math.min(idx, 20) * 30}ms` }}
               onClick={(e) => {
-                e.stopPropagation();
+                if (didDrag.current) return;
+                if (e.metaKey || e.ctrlKey) {
+                  toggleSelect(s.id);
+                  return;
+                }
+                openSeriesTab({
+                  seriesId: s.id,
+                  title: s.title,
+                  mediaType: s.mediaType,
+                });
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
                 toggleSelect(s.id);
               }}
             >
-              <Check className="h-3.5 w-3.5" />
-            </button>
+              <button
+                className={cn(
+                  "absolute left-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full border transition",
+                  selected
+                    ? "border-[var(--accent)] bg-[var(--accent)] text-white"
+                    : "border-white/50 bg-black/20 text-transparent opacity-0 group-hover:opacity-100"
+                )}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleSelect(s.id);
+                }}
+              >
+                <Check className="h-3.5 w-3.5" />
+              </button>
 
-            <SeriesThumb series={s} mediaType={mediaType} />
+              <SeriesThumb series={s} mediaType={mediaType} />
 
-            <div className="space-y-1.5 p-3">
-              <h3 className="line-clamp-2 text-sm font-medium leading-snug">{s.title}</h3>
-              {libraryViewMode === "series" && s.folderPath && (
-                <p
-                  className="truncate text-[10px] text-[var(--ink-faint)]"
-                  title={s.folderPath}
-                >
-                  {s.folderPath}
+              <div className="space-y-1.5 p-3 font-sans">
+                <h3 className="line-clamp-2 text-sm font-medium leading-snug">{s.title}</h3>
+                {libraryViewMode === "series" && s.folderPath && (
+                  <p
+                    className="truncate text-[10px] leading-4 text-[var(--ink-faint)]"
+                    title={s.folderPath}
+                  >
+                    {s.folderPath}
+                  </p>
+                )}
+                <p className="truncate text-xs leading-4 text-[var(--ink-muted)]">
+                  {s.author || "未知作者"} · {s.itemCount}{" "}
+                  {mediaType === "music"
+                    ? "首"
+                    : mediaType === "video" || mediaType === "photo"
+                      ? "个"
+                      : "话"}
                 </p>
-              )}
-              <p className="truncate text-xs text-[var(--ink-muted)]">
-                {s.author || "未知作者"} · {s.itemCount}{" "}
-                {mediaType === "music"
-                  ? "首"
-                  : mediaType === "video" || mediaType === "photo"
-                    ? "个"
-                    : "话"}
-              </p>
-              <div className="flex items-center justify-between">
-                <RatingStars rating={s.rating} />
-                <span className="text-[10px] text-[var(--ink-faint)]">
-                  {s.captureDate ? formatDate(s.captureDate) : formatDate(s.updatedAt)}
-                </span>
-              </div>
-              {s.tags.length > 0 && (
-                <div className="flex flex-wrap gap-1 pt-0.5">
-                  {s.tags.slice(0, 3).map((t) => (
-                    <span
-                      key={t.id}
-                      className="rounded-full px-1.5 py-0.5 text-[10px] text-white"
-                      style={{ backgroundColor: t.color }}
-                    >
-                      {t.name}
-                    </span>
-                  ))}
+                <div className="flex min-w-0 items-center justify-between gap-2">
+                  <RatingStars rating={s.rating} />
+                  <span className="min-w-0 shrink-0 whitespace-nowrap text-right text-[10px] leading-4 text-[var(--ink-faint)]">
+                    {s.captureDate ? formatDate(s.captureDate) : formatDate(s.updatedAt)}
+                  </span>
                 </div>
-              )}
-            </div>
-          </article>
-        );
-      })}
+                {s.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1 pt-0.5">
+                    {s.tags.slice(0, 3).map((t) => (
+                      <span
+                        key={t.id}
+                        className="rounded-full px-1.5 py-0.5 text-[10px] text-white"
+                        style={{ backgroundColor: t.color }}
+                      >
+                        {t.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </article>
+          );
+        })}
 
-      {boxStyle && (
-        <div
-          className="pointer-events-none fixed z-50 border border-[var(--accent)] bg-[var(--accent)]/15"
-          style={boxStyle}
-        />
-      )}
-    </div>
+        {boxStyle && (
+          <div
+            className="pointer-events-none fixed z-50 border border-[var(--accent)] bg-[var(--accent)]/15"
+            style={boxStyle}
+          />
+        )}
+      </div>
+
+      <div ref={loadMoreRef} className="mx-auto flex h-24 max-w-[1600px] items-center justify-center px-5 pb-28">
+        {loadingMore ? (
+          <span className="text-xs text-[var(--ink-muted)]">加载更多…</span>
+        ) : hasMore ? (
+          <span className="text-xs text-[var(--ink-faint)]">
+            已显示 {series.length} / {total}
+          </span>
+        ) : null}
+      </div>
+    </>
   );
 }

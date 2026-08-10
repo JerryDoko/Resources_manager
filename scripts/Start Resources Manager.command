@@ -1,5 +1,5 @@
 #!/bin/bash
-# 双击启动 Resources Manager（默认 Web 模式；如需 Electron 可设置 RM_START_MODE=dev）
+# 双击启动 Resources Manager（默认内置浏览器；如需系统浏览器可设置 RM_START_MODE=web）
 cd "$(dirname "$0")/.." || exit 1
 
 setup_node() {
@@ -18,7 +18,7 @@ setup_node() {
 }
 
 setup_node
-MODE="${RM_START_MODE:-web}"
+MODE="${RM_START_MODE:-dev}"
 
 if [[ ! -t 1 ]] && [[ "$(uname)" == "Darwin" ]]; then
   ROOT="$(pwd | sed 's/"/\\"/g')"

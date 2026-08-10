@@ -5,7 +5,7 @@ import fs from "fs";
 import path from "path";
 import JSZip from "jszip";
 import { decodeNovelBuffer, type NovelEncoding } from "@/lib/encoding";
-import { parseEpub, readEpubChapter } from "@/lib/epub";
+import { parseEpub, readEpubAsset, readEpubChapter } from "@/lib/epub";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,6 +31,12 @@ const MIME: Record<string, string> = {
   ".apng": "image/apng",
   ".bmp": "image/bmp",
   ".avif": "image/avif",
+  ".svg": "image/svg+xml",
+  ".css": "text/css; charset=utf-8",
+  ".otf": "font/otf",
+  ".ttf": "font/ttf",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
   ".txt": "text/plain; charset=utf-8",
   ".pdf": "application/pdf",
   ".epub": "application/epub+zip",
@@ -153,7 +159,13 @@ export async function GET(req: NextRequest, ctx: Ctx) {
       return NextResponse.json({ error: "缺少 href" }, { status: 400 });
     }
     try {
-      const chapter = await readEpubChapter(item.path, href, "html");
+      const chapter = await readEpubChapter(
+        item.path,
+        href,
+        "html",
+        (assetHref) =>
+          `/api/media/${encodeURIComponent(id)}?mode=epub-asset&href=${encodeURIComponent(assetHref)}`
+      );
       const asText = sp.get("as") === "text";
       if (asText) {
         return new NextResponse(chapter.text, {
@@ -167,6 +179,33 @@ export async function GET(req: NextRequest, ctx: Ctx) {
       return NextResponse.json(
         { error: e instanceof Error ? e.message : "章节读取失败" },
         { status: 500 }
+      );
+    }
+  }
+
+  // EPUB: package assets referenced by chapter HTML
+  if (mode === "epub-asset" && ext === ".epub") {
+    const href = sp.get("href");
+    if (!href) {
+      return NextResponse.json({ error: "缺少 href" }, { status: 400 });
+    }
+    try {
+      const asset = await readEpubAsset(item.path, href);
+      const assetExt = path.extname(asset.href).toLowerCase();
+      const body = asset.data.buffer.slice(
+        asset.data.byteOffset,
+        asset.data.byteOffset + asset.data.byteLength
+      ) as ArrayBuffer;
+      return new NextResponse(body, {
+        headers: {
+          "Content-Type": MIME[assetExt] || "application/octet-stream",
+          "Cache-Control": "private, max-age=3600",
+        },
+      });
+    } catch (e) {
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : "资源读取失败" },
+        { status: 404 }
       );
     }
   }

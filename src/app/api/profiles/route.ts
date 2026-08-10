@@ -46,13 +46,12 @@ export async function POST(req: NextRequest) {
 
     if (action === "switch") {
       const registry = setActiveProfile(body.id);
-      closeDb();
       return NextResponse.json({ registry, reload: true });
     }
 
     if (action === "delete") {
+      closeDb(body.id);
       const registry = deleteProfile(body.id);
-      closeDb();
       return NextResponse.json({ registry, reload: true });
     }
 

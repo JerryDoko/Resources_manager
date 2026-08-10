@@ -69,7 +69,11 @@ export function VideoPlayer({
   const [buffered, setBuffered] = useState(0);
   const [capturePreview, setCapturePreview] = useState<string | null>(null);
   const [captureBusy, setCaptureBusy] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(false);
   const scrubbing = useRef(false);
+  const lastProgressSaveAt = useRef(0);
+  const lastProgressValue = useRef(-1);
+  const controlsHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rewindTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -77,7 +81,7 @@ export function VideoPlayer({
   const holdKey = useRef<string | null>(null);
   const normalRate = useRef(1);
   const pressed = useRef(new Set<string>());
-  const { viewerHeaderClass } = useAppChrome();
+  const { fullscreen, viewerHeaderClass } = useAppChrome();
 
   const idx = playlist.findIndex((p) => p.id === itemId);
   const hasPrev = idx > 0;
@@ -106,16 +110,39 @@ export function VideoPlayer({
     window.setTimeout(() => setMsg(null), 1600);
   }, []);
 
-  const saveProgress = useCallback(() => {
+  const hideControlsSoon = useCallback(() => {
+    if (!fullscreen) return;
+    if (controlsHideTimer.current) clearTimeout(controlsHideTimer.current);
+    controlsHideTimer.current = setTimeout(() => setControlsVisible(false), 1400);
+  }, [fullscreen]);
+
+  const revealControls = useCallback(() => {
+    if (!fullscreen) return;
+    setControlsVisible(true);
+    hideControlsSoon();
+  }, [fullscreen, hideControlsSoon]);
+
+  const saveProgress = useCallback((force = false) => {
     const v = videoRef.current;
-    if (!v || !v.duration) return;
+    if (!v || !Number.isFinite(v.duration) || v.duration <= 0) return;
+    const progress = Math.max(0, Math.min(1, v.currentTime / v.duration));
+    const now = Date.now();
+    if (
+      !force &&
+      now - lastProgressSaveAt.current < 5000 &&
+      Math.abs(progress - lastProgressValue.current) < 0.01
+    ) {
+      return;
+    }
+    lastProgressSaveAt.current = now;
+    lastProgressValue.current = progress;
     fetch("/api/items", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         action: "progress",
         id: itemId,
-        progress: v.currentTime / v.duration,
+        progress,
       }),
       signal: AbortSignal.timeout(10000),
     }).catch(() => {});
@@ -123,14 +150,14 @@ export function VideoPlayer({
 
   const goPrev = useCallback(() => {
     if (!hasPrev || !onChangeItem) return;
-    saveProgress();
+    saveProgress(true);
     onChangeItem(playlist[idx - 1].id);
     flash(`上一个：${playlist[idx - 1].title}`);
   }, [hasPrev, onChangeItem, saveProgress, playlist, idx, flash]);
 
   const goNext = useCallback(() => {
     if (!hasNext || !onChangeItem) return;
-    saveProgress();
+    saveProgress(true);
     onChangeItem(playlist[idx + 1].id);
     flash(`下一个：${playlist[idx + 1].title}`);
   }, [hasNext, onChangeItem, saveProgress, playlist, idx, flash]);
@@ -239,7 +266,7 @@ export function VideoPlayer({
 
       if (matchBinding(key, sc.close)) {
         e.preventDefault();
-        saveProgress();
+        saveProgress(true);
         onClose();
         return;
       }
@@ -392,6 +419,22 @@ export function VideoPlayer({
   ]);
 
   useEffect(() => {
+    if (!fullscreen) {
+      setControlsVisible(false);
+      if (controlsHideTimer.current) {
+        clearTimeout(controlsHideTimer.current);
+        controlsHideTimer.current = null;
+      }
+    }
+  }, [fullscreen]);
+
+  useEffect(() => {
+    return () => {
+      if (controlsHideTimer.current) clearTimeout(controlsHideTimer.current);
+    };
+  }, []);
+
+  useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
     const onTime = () => {
@@ -445,24 +488,39 @@ export function VideoPlayer({
     const onTime = () => {
       if (!scrubbing.current) setCurrentTime(v.currentTime);
       syncBuffered();
+      saveProgress(false);
     };
     const onMeta = () => {
       setDuration(v.duration || 0);
       syncBuffered();
     };
     const onProgress = () => syncBuffered();
+    const onEnded = () => saveProgress(true);
 
     v.addEventListener("timeupdate", onTime);
     v.addEventListener("loadedmetadata", onMeta);
     v.addEventListener("durationchange", onMeta);
     v.addEventListener("progress", onProgress);
+    v.addEventListener("ended", onEnded);
     return () => {
       v.removeEventListener("timeupdate", onTime);
       v.removeEventListener("loadedmetadata", onMeta);
       v.removeEventListener("durationchange", onMeta);
       v.removeEventListener("progress", onProgress);
+      v.removeEventListener("ended", onEnded);
     };
-  }, [itemId]);
+  }, [itemId, saveProgress]);
+
+  useEffect(() => {
+    const flush = () => saveProgress(true);
+    window.addEventListener("pagehide", flush);
+    window.addEventListener("beforeunload", flush);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      window.removeEventListener("beforeunload", flush);
+      flush();
+    };
+  }, [saveProgress]);
 
   const seekTo = useCallback((t: number) => {
     const v = videoRef.current;
@@ -470,7 +528,8 @@ export function VideoPlayer({
     const next = Math.max(0, Math.min(v.duration || 0, t));
     v.currentTime = next;
     setCurrentTime(next);
-  }, []);
+    saveProgress(true);
+  }, [saveProgress]);
 
   const hintLine = [
     `${bindingDisplay(shortcuts.playPause)} 播放`,
@@ -478,10 +537,23 @@ export function VideoPlayer({
     `${bindingDisplay(shortcuts.prevVideo)}/${bindingDisplay(shortcuts.nextVideo)} 上下集`,
   ].join(" · ");
 
+  const chromeVisible = !fullscreen || controlsVisible || !!capturePreview;
+
   return (
-    <FullscreenPortal className="fixed inset-0 z-[300] flex flex-col bg-black animate-viewer-in">
+    <FullscreenPortal
+      className="fixed inset-0 z-[300] flex flex-col bg-black animate-viewer-in"
+      onMouseMove={(e) => {
+        if (!fullscreen) return;
+        if (window.innerHeight - e.clientY <= 170) revealControls();
+        else hideControlsSoon();
+      }}
+    >
       <header
-        className={`flex shrink-0 items-center justify-between gap-3 px-4 py-3 text-white/90 ${viewerHeaderClass}`}
+        className={`flex items-center justify-between gap-3 px-4 py-3 text-white/90 transition-opacity duration-200 ${
+          fullscreen ? "absolute left-0 right-0 top-0 z-20" : "shrink-0"
+        } ${viewerHeaderClass} ${
+          chromeVisible ? "opacity-100" : "pointer-events-none opacity-0"
+        }`}
       >
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{title}</p>
@@ -506,7 +578,7 @@ export function VideoPlayer({
           </button>
           <button
             onClick={() => {
-              saveProgress();
+              saveProgress(true);
               onClose();
             }}
             className="rounded-lg p-2 hover:bg-white/10"
@@ -517,7 +589,11 @@ export function VideoPlayer({
       </header>
 
       {/* 取宽高约束中较小的一边等比适配 */}
-      <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden px-2">
+      <div
+        className={`relative flex min-h-0 flex-1 items-center justify-center overflow-hidden ${
+          fullscreen ? "px-0" : "px-2"
+        }`}
+      >
         <video
           ref={videoRef}
           src={`/api/media/${itemId}`}
@@ -526,7 +602,7 @@ export function VideoPlayer({
           onPlay={() => setPlaying(true)}
           onPause={() => {
             setPlaying(false);
-            saveProgress();
+            saveProgress(true);
           }}
           onClick={() => {
             const v = videoRef.current;
@@ -561,9 +637,28 @@ export function VideoPlayer({
             {msg}
           </div>
         )}
+        {fullscreen && !controlsVisible && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/45 to-transparent opacity-60 backdrop-blur-[1px]" />
+        )}
       </div>
 
-      <div className="flex shrink-0 flex-col gap-3 px-4 pb-4 pt-2 text-white">
+      <div
+        onMouseEnter={() => {
+          if (!fullscreen) return;
+          if (controlsHideTimer.current) clearTimeout(controlsHideTimer.current);
+          setControlsVisible(true);
+        }}
+        onMouseLeave={hideControlsSoon}
+        className={`flex flex-col gap-3 px-4 pb-4 pt-2 text-white transition-all duration-200 ${
+          fullscreen
+            ? `absolute bottom-0 left-0 right-0 z-20 bg-gradient-to-t from-black/80 via-black/45 to-transparent backdrop-blur-md ${
+                chromeVisible
+                  ? "translate-y-0 opacity-100"
+                  : "pointer-events-none translate-y-6 opacity-0"
+              }`
+            : "shrink-0"
+        }`}
+      >
         {/* 进度条：轨道与拇指同比例，时间在下方对齐 */}
         <div className="mx-auto w-full max-w-3xl">
           <div className="relative flex h-3 items-center">

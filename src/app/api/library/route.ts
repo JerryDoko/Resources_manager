@@ -12,8 +12,10 @@ export async function GET(req: NextRequest) {
   const sortBy = (sp.get("sort") as SortBy) || "updated";
   const tagIds = sp.get("tags")?.split(",").filter(Boolean);
   const tagMatch = (sp.get("tagMatch") as TagMatchMode) || "any";
-  const limit = Number(sp.get("limit") || 200);
-  const offset = Number(sp.get("offset") || 0);
+  const requestedLimit = Number(sp.get("limit") || 72);
+  const requestedOffset = Number(sp.get("offset") || 0);
+  const limit = Math.min(200, Math.max(1, Number.isFinite(requestedLimit) ? requestedLimit : 72));
+  const offset = Math.max(0, Number.isFinite(requestedOffset) ? requestedOffset : 0);
 
   const result = listSeries({ mediaType, search, sortBy, tagIds, tagMatch, limit, offset });
   const stats = getLibraryStats();

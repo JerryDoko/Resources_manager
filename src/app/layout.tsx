@@ -3,6 +3,7 @@ import { Fraunces, DM_Sans } from "next/font/google";
 import { LibraryProvider } from "@/lib/store";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { MusicDock } from "@/components/MusicDock";
+import { UpdateNotifier } from "@/components/update/UpdateNotifier";
 import "./globals.css";
 
 const fraunces = Fraunces({
@@ -33,6 +34,7 @@ export default function RootLayout({
           {children}
           <SettingsPanel />
           <MusicDock />
+          <UpdateNotifier />
         </LibraryProvider>
       </body>
     </html>

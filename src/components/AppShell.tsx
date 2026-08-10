@@ -53,6 +53,8 @@ export function AppShell() {
 
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT);
   const resizing = useRef(false);
+  const libraryMainRef = useRef<HTMLElement>(null);
+  const libraryScrollTop = useRef(0);
   const { fullscreen } = useAppChrome();
   const viewerOpen = useMediaViewerOpen();
   const showTabBar = !fullscreen || !viewerOpen;
@@ -96,6 +98,16 @@ export function AppShell() {
   const seriesTabs = tabs.filter((t) => t.kind === "series");
   const onLibrary = activeTabId === LIBRARY_TAB_ID;
   const showOrganize = libraryViewMode === "series" && selectedIds.size > 1;
+
+  useEffect(() => {
+    if (!onLibrary || libraryViewMode !== "series") return;
+    const el = libraryMainRef.current;
+    if (!el) return;
+    const frame = window.requestAnimationFrame(() => {
+      el.scrollTop = libraryScrollTop.current;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [onLibrary, libraryViewMode]);
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
@@ -146,7 +158,15 @@ export function AppShell() {
             </header>
 
             <div className="relative flex min-h-0 flex-1">
-              <main className="min-w-0 flex-1 overflow-y-auto scrollbar-thin">
+              <main
+                ref={libraryMainRef}
+                className="min-w-0 flex-1 overflow-y-auto scrollbar-thin"
+                onScroll={(e) => {
+                  if (libraryViewMode === "series") {
+                    libraryScrollTop.current = e.currentTarget.scrollTop;
+                  }
+                }}
+              >
                 {libraryViewMode === "import" ? (
                   <ImportView />
                 ) : (

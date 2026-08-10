@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { MediaType, SortBy, TagMatchMode, LibraryViewMode } from "@/lib/types";
 
 export const LIBRARY_TAB_ID = "library";
@@ -60,6 +60,9 @@ interface LibraryContextValue {
   stats: Record<string, number>;
   tags: { id: string; name: string; color: string }[];
   loading: boolean;
+  loadingMore: boolean;
+  hasMore: boolean;
+  loadMore: () => Promise<void>;
   selectedIds: Set<string>;
   toggleSelect: (id: string) => void;
   setSelectedIds: (ids: Set<string>) => void;
@@ -98,6 +101,7 @@ interface LibraryContextValue {
 const LibraryContext = createContext<LibraryContextValue | null>(null);
 
 const MAX_SERIES_TABS = 16;
+const LIBRARY_PAGE_SIZE = 72;
 
 export function LibraryProvider({ children }: { children: React.ReactNode }) {
   const [mediaType, setMediaType] = useState<MediaType>("manga");
@@ -110,6 +114,8 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
   const [stats, setStats] = useState<Record<string, number>>({});
   const [tags, setTags] = useState<{ id: string; name: string; color: string }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showSettings, setShowSettings] = useState(false);
   const [musicQueue, setMusicQueue] = useState<{
@@ -125,6 +131,8 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
   const [libraryViewMode, setLibraryViewMode] = useState<LibraryViewMode>("series");
   const [previewSeriesId, setPreviewSeriesId] = useState<string | null>(null);
   const [uiScale, setUiScaleState] = useState(1);
+  const refreshSeq = useRef(0);
+  const loadingMoreRef = useRef(false);
 
   const setUiScale = useCallback((n: number) => {
     const v = Math.min(1.25, Math.max(0.85, n));
@@ -158,12 +166,17 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refresh = useCallback(async () => {
+    const seq = ++refreshSeq.current;
     setLoading(true);
+    setLoadingMore(false);
+    loadingMoreRef.current = false;
     try {
       const params = new URLSearchParams({
         type: mediaType,
         sort: sortBy,
         tagMatch,
+        limit: String(LIBRARY_PAGE_SIZE),
+        offset: "0",
       });
       if (search) params.set("q", search);
       if (selectedTagIds.length) params.set("tags", selectedTagIds.join(","));
@@ -172,13 +185,60 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
         signal: AbortSignal.timeout(10000),
       });
       const data = await res.json();
+      if (seq !== refreshSeq.current) return;
       setSeries(data.items || []);
       setTotal(data.total || 0);
       setStats(data.stats?.seriesByType || {});
+      setHasMore((data.items?.length || 0) < (data.total || 0));
     } finally {
-      setLoading(false);
+      if (seq === refreshSeq.current) setLoading(false);
     }
   }, [mediaType, search, sortBy, selectedTagIds, tagMatch]);
+
+  const loadMore = useCallback(async () => {
+    if (loading || loadingMoreRef.current || !hasMore) return;
+    const offset = series.length;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const params = new URLSearchParams({
+        type: mediaType,
+        sort: sortBy,
+        tagMatch,
+        limit: String(LIBRARY_PAGE_SIZE),
+        offset: String(offset),
+      });
+      if (search) params.set("q", search);
+      if (selectedTagIds.length) params.set("tags", selectedTagIds.join(","));
+
+      const res = await fetch(`/api/library?${params}`, {
+        signal: AbortSignal.timeout(10000),
+      });
+      const data = await res.json();
+      const nextItems = (data.items || []) as SeriesCard[];
+
+      setSeries((prev) => {
+        const seen = new Set(prev.map((item) => item.id));
+        const unique = nextItems.filter((item) => !seen.has(item.id));
+        return [...prev, ...unique];
+      });
+      setTotal(data.total || 0);
+      setStats(data.stats?.seriesByType || {});
+      setHasMore(offset + nextItems.length < (data.total || 0));
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [
+    hasMore,
+    loading,
+    mediaType,
+    search,
+    selectedTagIds,
+    series.length,
+    sortBy,
+    tagMatch,
+  ]);
 
   useEffect(() => {
     refresh();
@@ -298,6 +358,9 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
       stats,
       tags,
       loading,
+      loadingMore,
+      hasMore,
+      loadMore,
       selectedIds,
       toggleSelect,
       setSelectedIds,
@@ -336,6 +399,9 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
       stats,
       tags,
       loading,
+      loadingMore,
+      hasMore,
+      loadMore,
       selectedIds,
       toggleSelect,
       clearSelection,
