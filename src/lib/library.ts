@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, like, or, sql, inArray } from "drizzle-orm";
+import fs from "fs";
 import path from "path";
 import { v4 as uuid } from "uuid";
 import { getDb, getSqlite, schema } from "@/lib/db";
@@ -143,7 +144,23 @@ export function getSeriesById(id: string) {
     .from(schema.mediaItems)
     .where(eq(schema.mediaItems.seriesId, id))
     .orderBy(asc(schema.mediaItems.sortOrder), asc(schema.mediaItems.title))
-    .all();
+    .all()
+    .map((item) => {
+      try {
+        const stat = fs.statSync(item.path);
+        return {
+          ...item,
+          fileCreatedAt: stat.birthtimeMs || stat.ctimeMs || item.createdAt,
+          fileModifiedAt: stat.mtimeMs || item.updatedAt,
+        };
+      } catch {
+        return {
+          ...item,
+          fileCreatedAt: item.createdAt,
+          fileModifiedAt: item.updatedAt,
+        };
+      }
+    });
 
   const tags = getSqlite()
     .prepare(

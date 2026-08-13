@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   FolderPlus,
   FolderOpen,
@@ -27,26 +27,46 @@ export function ImportView() {
   const [msg, setMsg] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
+  const loadSeq = useRef(0);
+  const mounted = useRef(true);
 
   const typeLabel = MEDIA_TYPE_LABELS[mediaType];
   const filteredFolders = folders.filter((f) => f.mediaType === mediaType);
 
-  const load = async () => {
-    const res = await fetch("/api/folders", { signal: AbortSignal.timeout(10000) });
-    if (!res.ok) {
-      setMsg("加载导入路径失败");
-      return;
+  const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
+    try {
+      const res = await fetch("/api/folders", { signal: AbortSignal.timeout(10000) });
+      if (!res.ok) {
+        if (seq === loadSeq.current) setMsg("加载导入路径失败");
+        return;
+      }
+      const data = await res.json();
+      if (seq !== loadSeq.current) return;
+      setFolders(data.folders || []);
+      setActiveProfileId(data.activeProfileId || null);
+    } catch {
+      if (seq === loadSeq.current) setMsg("加载导入路径失败");
     }
-    const data = await res.json();
-    setFolders(data.folders || []);
-    setActiveProfileId(data.activeProfileId || null);
-  };
+  }, []);
 
   useEffect(() => {
     load();
-  }, [mediaType]);
+    return () => {
+      loadSeq.current += 1;
+    };
+  }, [mediaType, load]);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      loadSeq.current += 1;
+    };
+  }, []);
 
   const browseFinder = async () => {
+    const requestProfileId = activeProfileId;
     setMsg("正在打开访达…");
     try {
       const res = await fetch("/api/folders", {
@@ -55,11 +75,12 @@ export function ImportView() {
         body: JSON.stringify({
           action: "browse",
           prompt: "选择媒体文件夹",
-          profileId: activeProfileId,
+          profileId: requestProfileId,
         }),
         signal: AbortSignal.timeout(180000),
       });
       const data = await res.json();
+      if (!mounted.current) return;
       if (data.path) {
         setPath(data.path);
         setMsg(null);
@@ -72,6 +93,7 @@ export function ImportView() {
 
   const addFolder = async () => {
     if (!path.trim()) return;
+    const requestProfileId = activeProfileId;
     setAdding(true);
     setMsg("正在添加并扫描…");
     try {
@@ -82,11 +104,12 @@ export function ImportView() {
           action: "add",
           path: path.trim(),
           mediaType,
-          profileId: activeProfileId,
+          profileId: requestProfileId,
         }),
         signal: AbortSignal.timeout(600000),
       });
       const data = await res.json();
+      if (!mounted.current || data.activeProfileId !== requestProfileId) return;
       if (!res.ok) {
         setMsg(data.error || "添加失败");
         return;
@@ -106,6 +129,7 @@ export function ImportView() {
   };
 
   const rescanFolder = async (folder: Folder) => {
+    const requestProfileId = activeProfileId;
     setScanningId(folder.id);
     setMsg(null);
     try {
@@ -116,11 +140,12 @@ export function ImportView() {
           action: "scan",
           path: folder.path,
           mediaType: folder.mediaType,
-          profileId: activeProfileId,
+          profileId: requestProfileId,
         }),
         signal: AbortSignal.timeout(600000),
       });
       const data = await res.json();
+      if (!mounted.current || data.activeProfileId !== requestProfileId) return;
       if (!res.ok) {
         setMsg(data.error || "扫描失败");
         return;
@@ -138,12 +163,15 @@ export function ImportView() {
 
   const remove = async (id: string) => {
     if (!confirm("从库中移除此导入路径？（不会删除磁盘文件）")) return;
-    await fetch("/api/folders", {
+    const requestProfileId = activeProfileId;
+    const response = await fetch("/api/folders", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "remove", id, profileId: activeProfileId }),
+      body: JSON.stringify({ action: "remove", id, profileId: requestProfileId }),
       signal: AbortSignal.timeout(10000),
     });
+    const data = await response.json();
+    if (!mounted.current || data.activeProfileId !== requestProfileId) return;
     await load();
   };
 

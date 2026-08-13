@@ -4,7 +4,6 @@ import fs from "fs";
 import path from "path";
 import * as schema from "./schema";
 import {
-  applyDefaultOnBoot,
   getActiveProfileId,
   getProfileDataDir,
 } from "@/lib/profiles";
@@ -15,7 +14,6 @@ type DbConnection = {
 };
 
 const _connections = new Map<string, DbConnection>();
-let _booted = false;
 
 function ensureSchema(sqlite: Database.Database) {
   sqlite.exec(`
@@ -109,19 +107,6 @@ function ensureSchema(sqlite: Database.Database) {
   );
 }
 
-function bootOnce() {
-  if (_booted) return;
-  _booted = true;
-  // 桌面端启动时注入该变量，每次打开应用进入「默认配置」
-  if (process.env.RESOURCES_MANAGER_APPLY_DEFAULT === "1") {
-    try {
-      applyDefaultOnBoot();
-    } catch {
-      /* ignore */
-    }
-  }
-}
-
 export function closeDb(profileId?: string) {
   const entries = profileId
     ? ([[profileId, _connections.get(profileId)]].filter(([, conn]) => conn) as [
@@ -141,7 +126,6 @@ export function closeDb(profileId?: string) {
 }
 
 export function getDb() {
-  bootOnce();
   const profileId = getActiveProfileId();
   const existing = _connections.get(profileId);
   if (existing) return existing.db;
@@ -174,7 +158,6 @@ export function getSqlite() {
 }
 
 export function getDataDir() {
-  bootOnce();
   return getProfileDataDir(getActiveProfileId());
 }
 

@@ -19,7 +19,6 @@ if [[ ! -d node_modules ]]; then
 fi
 
 mkdir -p data/thumbnails
-export RESOURCES_MANAGER_APPLY_DEFAULT=1
 
 case "$MODE" in
   dev|development)

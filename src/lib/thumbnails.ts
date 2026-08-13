@@ -8,6 +8,23 @@ import JSZip from "jszip";
 import { getDataDir } from "@/lib/db";
 
 const execFileAsync = promisify(execFile);
+const videoThumbJobs = new Map<string, Promise<string | null>>();
+let activeVideoThumbJobs = 0;
+const waitingVideoThumbJobs: Array<() => void> = [];
+const MAX_VIDEO_THUMB_JOBS = 2;
+
+async function withVideoThumbSlot<T>(task: () => Promise<T>): Promise<T> {
+  if (activeVideoThumbJobs >= MAX_VIDEO_THUMB_JOBS) {
+    await new Promise<void>((resolve) => waitingVideoThumbJobs.push(resolve));
+  }
+  activeVideoThumbJobs += 1;
+  try {
+    return await task();
+  } finally {
+    activeVideoThumbJobs -= 1;
+    waitingVideoThumbJobs.shift()?.();
+  }
+}
 
 const IMAGE_EXTS = new Set([
   ".jpg",
@@ -195,7 +212,7 @@ async function fromVideoFile(filePath: string, dest: string): Promise<string | n
       await execFileAsync(
         "qlmanage",
         ["-t", "-s", "640", "-o", tmpDir, filePath],
-        { timeout: 30000, maxBuffer: 4 * 1024 * 1024 }
+        { timeout: 8000, maxBuffer: 4 * 1024 * 1024 }
       );
       const pngs = fs.readdirSync(tmpDir).filter((f) => f.toLowerCase().endsWith(".png"));
       if (pngs.length) {
@@ -211,7 +228,7 @@ async function fromVideoFile(filePath: string, dest: string): Promise<string | n
       await execFileAsync(
         "ffmpeg",
         ["-y", "-ss", "1", "-i", filePath, "-frames:v", "1", "-q:v", "2", outPng],
-        { timeout: 30000, maxBuffer: 4 * 1024 * 1024 }
+        { timeout: 12000, maxBuffer: 4 * 1024 * 1024 }
       );
       if (fs.existsSync(outPng)) {
         return writeThumb(fs.readFileSync(outPng), dest);
@@ -270,7 +287,18 @@ export async function ensureSeriesThumbnail(
       /* regenerate */
     }
   }
-  return generateThumbFromFile(sourcePath, dest);
+  if (!VIDEO_EXTS.has(path.extname(sourcePath).toLowerCase())) {
+    return generateThumbFromFile(sourcePath, dest);
+  }
+
+  const jobKey = `series:${seriesId}`;
+  const existingJob = videoThumbJobs.get(jobKey);
+  if (existingJob) return existingJob;
+  const job = withVideoThumbSlot(() => generateThumbFromFile(sourcePath, dest)).finally(() => {
+    videoThumbJobs.delete(jobKey);
+  });
+  videoThumbJobs.set(jobKey, job);
+  return job;
 }
 
 export async function ensureItemThumbnail(
@@ -279,5 +307,16 @@ export async function ensureItemThumbnail(
 ): Promise<string | null> {
   const dest = itemThumbPath(itemId);
   if (fs.existsSync(dest)) return dest;
-  return generateThumbFromFile(sourcePath, dest);
+  if (!VIDEO_EXTS.has(path.extname(sourcePath).toLowerCase())) {
+    return generateThumbFromFile(sourcePath, dest);
+  }
+
+  const existingJob = videoThumbJobs.get(itemId);
+  if (existingJob) return existingJob;
+
+  const job = withVideoThumbSlot(() => generateThumbFromFile(sourcePath, dest)).finally(() => {
+    videoThumbJobs.delete(itemId);
+  });
+  videoThumbJobs.set(itemId, job);
+  return job;
 }

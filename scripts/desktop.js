@@ -29,15 +29,26 @@ function waitForServer(url, tries = 90) {
   return new Promise((resolve, reject) => {
     let left = tries;
     const tick = () => {
+      let attemptFinished = false;
+      const retry = () => {
+        if (attemptFinished) return;
+        attemptFinished = true;
+        if (--left <= 0) reject(new Error(`服务未就绪: ${url}`));
+        else setTimeout(tick, 400);
+      };
       const req = http.get(url, (res) => {
+        if (attemptFinished) {
+          res.resume();
+          return;
+        }
+        attemptFinished = true;
         res.resume();
         resolve();
       });
-      req.on("error", () => {
-        if (--left <= 0) reject(new Error(`服务未就绪: ${url}`));
-        else setTimeout(tick, 400);
-      });
+      req.on("error", retry);
       req.setTimeout(800, () => {
+        if (attemptFinished) return;
+        attemptFinished = true;
         req.destroy();
         if (--left <= 0) reject(new Error(`服务未就绪: ${url}`));
         else setTimeout(tick, 400);

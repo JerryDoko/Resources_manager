@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   Star,
-  Play,
   BookOpen,
   Music2,
   Image as ImageIcon,
@@ -12,6 +11,11 @@ import {
   FolderOpen,
   Check,
   Filter,
+  ArrowDownAZ,
+  ArrowUpAZ,
+  CalendarPlus,
+  CalendarClock,
+  ChevronDown,
 } from "lucide-react";
 import { useLibrary } from "@/lib/store";
 import { MEDIA_TYPE_LABELS, type MediaType } from "@/lib/types";
@@ -19,6 +23,7 @@ import { cn, formatBytes, formatDate, formatDuration } from "@/lib/utils";
 import { MangaReader } from "@/components/viewers/MangaReader";
 import { VideoPlayer } from "@/components/viewers/VideoPlayer";
 import { NovelReader } from "@/components/viewers/NovelReader";
+import { VideoItemThumbnail } from "@/components/VideoItemThumbnail";
 
 function dirname(filePath: string) {
   const i = filePath.lastIndexOf("/");
@@ -83,6 +88,8 @@ interface SeriesDetail {
     captureDate: string | null;
     createdAt: number;
     updatedAt: number;
+    fileCreatedAt: number;
+    fileModifiedAt: number;
   }[];
   tags: { id: string; name: string; color: string }[];
 }
@@ -96,6 +103,51 @@ interface SeriesDetailViewProps {
 }
 
 type DragBox = { x0: number; y0: number; x1: number; y1: number };
+type ItemSortKey = "name" | "created" | "updated";
+type SortDirection = "asc" | "desc";
+
+const itemSortOptions: Array<{
+  key: ItemSortKey;
+  label: string;
+  icon: typeof ArrowDownAZ;
+}> = [
+  { key: "name", label: "根据名称", icon: ArrowDownAZ },
+  { key: "created", label: "添加日期", icon: CalendarPlus },
+  { key: "updated", label: "修改日期", icon: CalendarClock },
+];
+
+const itemTitleCollator = new Intl.Collator("zh-CN", {
+  numeric: true,
+  sensitivity: "base",
+});
+
+function compareNumber(a: number | null | undefined, b: number | null | undefined) {
+  return (a || 0) - (b || 0);
+}
+
+function sortItems(
+  items: SeriesDetail["items"],
+  key: ItemSortKey,
+  direction: SortDirection
+) {
+  const sign = direction === "asc" ? 1 : -1;
+  return [...items].sort((a, b) => {
+    let result = 0;
+    if (key === "name") {
+      result = itemTitleCollator.compare(a.title, b.title);
+      if (result === 0) result = itemTitleCollator.compare(a.path, b.path);
+    } else if (key === "created") {
+      result = compareNumber(a.fileCreatedAt, b.fileCreatedAt);
+    } else {
+      result = compareNumber(a.fileModifiedAt, b.fileModifiedAt);
+    }
+
+    if (result === 0) {
+      result = compareNumber(a.sortOrder, b.sortOrder) || itemTitleCollator.compare(a.title, b.title);
+    }
+    return result * sign;
+  });
+}
 
 function rectsIntersect(
   a: { left: number; top: number; right: number; bottom: number },
@@ -118,6 +170,9 @@ export function SeriesDetailView({
   const [thumbFailed, setThumbFailed] = useState(false);
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
   const [itemRatingFilter, setItemRatingFilter] = useState(0);
+  const [itemSortKey, setItemSortKey] = useState<ItemSortKey>("name");
+  const [itemSortDirection, setItemSortDirection] = useState<SortDirection>("asc");
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
   const [focusedItemId, setFocusedItemId] = useState<string | null>(null);
   const [itemThumbFailed, setItemThumbFailed] = useState(false);
   const [drag, setDrag] = useState<DragBox | null>(null);
@@ -127,6 +182,7 @@ export function SeriesDetailView({
   const dragStart = useRef<{ x: number; y: number; additive: boolean } | null>(null);
   const didDrag = useRef(false);
   const lastClickedId = useRef<string | null>(null);
+  const sortMenuRef = useRef<HTMLDivElement>(null);
 
   const load = async () => {
     setLoading(true);
@@ -163,8 +219,27 @@ export function SeriesDetailView({
   useEffect(() => {
     setSelectedItemIds(new Set());
     setItemRatingFilter(0);
+    setSortMenuOpen(false);
     setFocusedItemId(null);
   }, [seriesId]);
+
+  useEffect(() => {
+    if (!sortMenuOpen) return;
+    const closeMenu = (event: PointerEvent) => {
+      if (!sortMenuRef.current?.contains(event.target as Node)) {
+        setSortMenuOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSortMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", closeMenu);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeMenu);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [sortMenuOpen]);
 
   const setRating = async (rating: number) => {
     await fetch(`/api/library/${seriesId}`, {
@@ -247,6 +322,14 @@ export function SeriesDetailView({
           }
         : d
     );
+  };
+
+  const setItemSort = (key: ItemSortKey) => {
+    setItemSortDirection((currentDirection) =>
+      itemSortKey === key ? (currentDirection === "asc" ? "desc" : "asc") : "asc"
+    );
+    setItemSortKey(key);
+    setSortMenuOpen(false);
   };
 
   const toggleItemSelect = (itemId: string) => {
@@ -378,13 +461,15 @@ export function SeriesDetailView({
       if (itemRatingFilter === 0) return true;
       return item.rating >= itemRatingFilter;
     }) ?? [];
+  const sortedItems = sortItems(filteredItems, itemSortKey, itemSortDirection);
+  const sortedAllItems = sortItems(data?.items ?? [], itemSortKey, itemSortDirection);
 
   const viewerItem = data?.items.find((i) => i.id === viewerItemId);
   const totalSize = data?.items.reduce((s, i) => s + (i.fileSize || 0), 0) ?? 0;
   const typeLabel =
     MEDIA_TYPE_LABELS[(data?.mediaType as MediaType) || "manga"] || data?.mediaType;
   const showCheckboxes = selectedItemIds.size > 0 || drag !== null;
-  const orderedFilteredIds = filteredItems.map((i) => i.id);
+  const orderedFilteredIds = sortedItems.map((i) => i.id);
   const dragBoxStyle = drag
     ? {
         left: Math.min(drag.x0, drag.x1),
@@ -412,7 +497,7 @@ export function SeriesDetailView({
                 ? "photo"
                 : "manga"
           }
-          playlist={data.items.map((i) => ({
+          playlist={sortedAllItems.map((i) => ({
             id: i.id,
             title: i.title,
             path: i.path,
@@ -428,7 +513,7 @@ export function SeriesDetailView({
           itemId={viewerItem.id}
           title={viewerItem.title}
           initialProgress={viewerItem.progress}
-          playlist={data.items.map((i) => ({
+          playlist={sortedAllItems.map((i) => ({
             id: i.id,
             title: i.title,
             progress: i.progress,
@@ -573,8 +658,16 @@ export function SeriesDetailView({
                           </div>
                         )}
                         <div className="flex justify-between gap-2">
-                          <dt className="text-[var(--ink-faint)]">更新时间</dt>
-                          <dd>{formatDate(focusedItem.updatedAt)}</dd>
+                          <dt className="text-[var(--ink-faint)]">添加日期</dt>
+                          <dd className="min-w-0 truncate text-right">
+                            {formatDate(focusedItem.fileCreatedAt)}
+                          </dd>
+                        </div>
+                        <div className="flex justify-between gap-2">
+                          <dt className="text-[var(--ink-faint)]">修改日期</dt>
+                          <dd className="min-w-0 truncate text-right">
+                            {formatDate(focusedItem.fileModifiedAt)}
+                          </dd>
                         </div>
                       </dl>
                     </div>
@@ -725,6 +818,64 @@ export function SeriesDetailView({
                       已选 {selectedItemIds.size}
                     </span>
                   )}
+                  <div ref={sortMenuRef} className="relative">
+                    <button
+                      type="button"
+                      aria-haspopup="menu"
+                      aria-expanded={sortMenuOpen}
+                      onClick={() => setSortMenuOpen((open) => !open)}
+                      className="flex h-8 items-center gap-1.5 rounded-lg border border-[var(--line)] bg-white px-2.5 text-xs text-[var(--ink-muted)] transition hover:text-[var(--ink)]"
+                    >
+                      {itemSortDirection === "asc" ? (
+                        <ArrowDownAZ className="h-3.5 w-3.5 text-[var(--accent)]" />
+                      ) : (
+                        <ArrowUpAZ className="h-3.5 w-3.5 text-[var(--accent)]" />
+                      )}
+                      <span>
+                        排序：{itemSortOptions.find((option) => option.key === itemSortKey)?.label}
+                      </span>
+                      <ChevronDown
+                        className={cn(
+                          "h-3.5 w-3.5 transition-transform",
+                          sortMenuOpen && "rotate-180"
+                        )}
+                      />
+                    </button>
+                    {sortMenuOpen && (
+                      <div
+                        role="menu"
+                        className="absolute right-0 top-full z-30 mt-1.5 w-40 overflow-hidden rounded-lg border border-[var(--line)] bg-white p-1 shadow-lg"
+                      >
+                        {itemSortOptions.map((option) => {
+                          const Icon = option.icon;
+                          const active = option.key === itemSortKey;
+                          return (
+                            <button
+                              key={option.key}
+                              type="button"
+                              role="menuitem"
+                              onClick={() => setItemSort(option.key)}
+                              className={cn(
+                                "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs transition",
+                                active
+                                  ? "bg-[var(--accent-soft)] text-[var(--accent)]"
+                                  : "text-[var(--ink-muted)] hover:bg-[var(--bg)] hover:text-[var(--ink)]"
+                              )}
+                            >
+                              <Icon className="h-3.5 w-3.5" />
+                              <span className="flex-1">{option.label}</span>
+                              {active &&
+                                (itemSortDirection === "asc" ? (
+                                  <ArrowDownAZ className="h-3.5 w-3.5" />
+                                ) : (
+                                  <ArrowUpAZ className="h-3.5 w-3.5" />
+                                ))}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                   <label className="flex items-center gap-1.5 text-xs text-[var(--ink-muted)]">
                     <Filter className="h-3.5 w-3.5" />
                     <select
@@ -749,8 +900,7 @@ export function SeriesDetailView({
                 onMouseDown={onListMouseDown}
               >
               <ul className="divide-y divide-[var(--line)] overflow-hidden rounded-2xl border border-[var(--line)] bg-white">
-                {filteredItems.map((item) => {
-                  const idx = data.items.findIndex((i) => i.id === item.id);
+                {sortedItems.map((item, idx) => {
                   const selected = selectedItemIds.has(item.id);
                   const focused = focusedItemId === item.id;
                   return (
@@ -790,26 +940,34 @@ export function SeriesDetailView({
                             data.mediaType === "video" ? "h-14 w-24" : "h-12 w-10"
                           )}
                         >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={`/api/thumbnails/item/${item.id}?t=${item.updatedAt}`}
-                            alt=""
-                            className="absolute inset-0 z-[1] h-full w-full object-cover"
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).style.display = "none";
-                            }}
-                          />
-                          <span className="absolute inset-0 z-0 flex items-center justify-center text-[var(--accent)]">
-                            {data.mediaType === "video" ? (
-                              <Play className="h-4 w-4" />
-                            ) : data.mediaType === "music" ? (
+                          {data.mediaType === "video" ? (
+                            <VideoItemThumbnail
+                              itemId={item.id}
+                              title={item.title}
+                              updatedAt={item.updatedAt}
+                            />
+                          ) : (
+                            <>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={`/api/thumbnails/item/${item.id}?t=${item.updatedAt}`}
+                                alt=""
+                                className="absolute inset-0 z-[1] h-full w-full object-cover"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).style.display = "none";
+                                }}
+                              />
+                              <span className="absolute inset-0 z-0 flex items-center justify-center text-[var(--accent)]">
+                                {data.mediaType === "music" ? (
                               <Music2 className="h-4 w-4" />
                             ) : data.mediaType === "photo" ? (
                               <ImageIcon className="h-4 w-4" />
                             ) : (
                               <BookOpen className="h-4 w-4" />
                             )}
-                          </span>
+                              </span>
+                            </>
+                          )}
                           {data.mediaType === "video" && (
                             <div className="absolute bottom-0 left-0 right-0 z-[2] h-1 bg-black/50">
                               <div
@@ -825,14 +983,25 @@ export function SeriesDetailView({
                           <p className="truncate text-sm font-medium">
                             {idx + 1}. {item.title}
                           </p>
-                          <p className="truncate text-xs text-[var(--ink-faint)]" title={item.path}>
+                          <p className="truncate text-xs text-[var(--ink-faint)]">
                             {formatBytes(item.fileSize)}
                             {item.duration != null && ` · ${formatDuration(item.duration)}`}
                             {data.mediaType === "video" &&
                               item.progress > 0 &&
                               ` · 已看 ${Math.round(item.progress * 100)}%`}
-                            {" · "}
+                          </p>
+                          <p
+                            className="truncate text-[10px] leading-4 text-[var(--ink-faint)]"
+                            title={item.path}
+                          >
                             {item.path}
+                          </p>
+                          <p
+                            className="truncate text-[10px] leading-4 text-[var(--ink-faint)]"
+                            title={`添加日期：${formatDate(item.fileCreatedAt)} · 修改日期：${formatDate(item.fileModifiedAt)}`}
+                          >
+                            添加日期：{formatDate(item.fileCreatedAt)} · 修改日期：
+                            {formatDate(item.fileModifiedAt)}
                           </p>
                         </div>
                       </button>
@@ -844,7 +1013,7 @@ export function SeriesDetailView({
                   </li>
                   );
                 })}
-                {filteredItems.length === 0 && (
+                {sortedItems.length === 0 && (
                   <li className="px-4 py-8 text-center text-sm text-[var(--ink-faint)]">
                     {data.items.length === 0 ? "暂无内容项" : "没有符合筛选条件的条目"}
                   </li>

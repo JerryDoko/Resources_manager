@@ -309,12 +309,15 @@ export function SeriesGrid() {
                       ? "个"
                       : "话"}
                 </p>
-                <div className="flex min-w-0 items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center">
                   <RatingStars rating={s.rating} />
-                  <span className="min-w-0 shrink-0 whitespace-nowrap text-right text-[10px] leading-4 text-[var(--ink-faint)]">
-                    {s.captureDate ? formatDate(s.captureDate) : formatDate(s.updatedAt)}
-                  </span>
                 </div>
+                <p
+                  className="truncate text-[10px] leading-4 text-[var(--ink-faint)]"
+                  title={s.captureDate ? formatDate(s.captureDate) : formatDate(s.updatedAt)}
+                >
+                  {s.captureDate ? formatDate(s.captureDate) : formatDate(s.updatedAt)}
+                </p>
                 {s.tags.length > 0 && (
                   <div className="flex flex-wrap gap-1 pt-0.5">
                     {s.tags.slice(0, 3).map((t) => (

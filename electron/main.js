@@ -26,16 +26,27 @@ function waitForServer(url, tries = 100) {
   return new Promise((promiseResolve, promiseReject) => {
     let left = tries;
     const tick = () => {
-      const req = http.get(url, (res) => {
-        res.resume();
-        promiseResolve();
-      });
-      req.on("error", () => {
+      let attemptFinished = false;
+      const retry = () => {
+        if (attemptFinished) return;
+        attemptFinished = true;
         left -= 1;
         if (left <= 0) promiseReject(new Error(`服务未在 ${url} 就绪`));
         else setTimeout(tick, 400);
+      };
+      const req = http.get(url, (res) => {
+        if (attemptFinished) {
+          res.resume();
+          return;
+        }
+        attemptFinished = true;
+        res.resume();
+        promiseResolve();
       });
+      req.on("error", retry);
       req.setTimeout(800, () => {
+        if (attemptFinished) return;
+        attemptFinished = true;
         req.destroy();
         left -= 1;
         if (left <= 0) promiseReject(new Error(`服务未在 ${url} 就绪`));
@@ -67,6 +78,24 @@ function dataDir() {
   return path.join(app.getPath("userData"), "data");
 }
 
+function applyDefaultProfileAtLaunch() {
+  const file = path.join(dataDir(), "profiles.json");
+  try {
+    if (!fs.existsSync(file)) return;
+    const registry = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (
+      registry.defaultId &&
+      registry.activeId !== registry.defaultId &&
+      registry.profiles?.some((profile) => profile.id === registry.defaultId)
+    ) {
+      registry.activeId = registry.defaultId;
+      fs.writeFileSync(file, JSON.stringify(registry, null, 2), "utf8");
+    }
+  } catch (error) {
+    console.warn("[rm] 应用默认配置失败", error);
+  }
+}
+
 function startPackagedServer() {
   const serverJs = path.join(ROOT, "server.js");
   const nodeBin = path.join(process.resourcesPath, "node", "bin", "node");
@@ -83,7 +112,6 @@ function startPackagedServer() {
     HOSTNAME: "127.0.0.1",
     BROWSER: "none",
     RESOURCES_MANAGER_DATA: dataDir(),
-    RESOURCES_MANAGER_APPLY_DEFAULT: "1",
     NODE_ENV: "production",
   };
 
@@ -117,7 +145,6 @@ function startDevServer() {
       PORT: String(PORT),
       BROWSER: "none",
       RESOURCES_MANAGER_DATA: dataDir(),
-      RESOURCES_MANAGER_APPLY_DEFAULT: "1",
     },
     stdio: "inherit",
     shell: process.platform === "win32",
@@ -326,6 +353,7 @@ app.whenReady().then(async () => {
 
   try {
     fs.mkdirSync(dataDir(), { recursive: true });
+    applyDefaultProfileAtLaunch();
   } catch {
     /* ignore */
   }

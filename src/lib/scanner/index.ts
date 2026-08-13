@@ -300,22 +300,11 @@ export async function scanFolder(
                 .where(eq(schema.mediaItems.id, existing.id))
                 .run();
             }
-            if (mediaType === "video" && !existing.thumbnailPath) {
-              const thumb = await ensureItemThumbnail(existing.id, filePath);
-              if (thumb) {
-                db.update(schema.mediaItems)
-                  .set({ thumbnailPath: thumb, updatedAt: now })
-                  .where(eq(schema.mediaItems.id, existing.id))
-                  .run();
-              }
-            }
             continue;
           }
 
           const stat = fs.statSync(filePath);
           const itemId = uuid();
-          const thumb =
-            mediaType === "video" ? await ensureItemThumbnail(itemId, filePath) : null;
           db.insert(schema.mediaItems)
             .values({
               id: itemId,
@@ -326,7 +315,8 @@ export async function scanFolder(
               sortOrder: order++,
               fileSize: stat.size,
               captureDate: new Date(stat.mtimeMs).toISOString().slice(0, 10),
-              thumbnailPath: thumb,
+              // 视频封面在列表可见时按需生成，避免导入被逐个抽帧阻塞。
+              thumbnailPath: null,
               createdAt: now,
               updatedAt: now,
             })
@@ -538,7 +528,15 @@ async function refreshSeriesStats(
     items[0]?.path ||
     null;
 
-  const seriesThumb = await ensureSeriesThumbnail(seriesId, sourceForThumb);
+  const isVideoSeries = items[0]?.mediaType === "video";
+  const existingSeries = db
+    .select({ thumbnailPath: schema.series.thumbnailPath })
+    .from(schema.series)
+    .where(eq(schema.series.id, seriesId))
+    .get();
+  const seriesThumb = isVideoSeries
+    ? existingSeries?.thumbnailPath ?? null
+    : await ensureSeriesThumbnail(seriesId, sourceForThumb);
 
   const captureDates = items.map((i) => i.captureDate).filter(Boolean) as string[];
   const earliestCapture = captureDates.sort()[0] || null;
