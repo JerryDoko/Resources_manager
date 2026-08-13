@@ -6,6 +6,7 @@ const pkg = require("../../../../../package.json") as { version: string };
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 const OWNER = "JerryDoko";
 const REPO = "Resources_manager";
@@ -53,7 +54,7 @@ export async function GET() {
         "User-Agent": "Resources-Manager-Update-Checker",
         "X-GitHub-Api-Version": "2022-11-28",
       },
-      next: { revalidate: 60 * 60 },
+      cache: "no-store",
       signal: AbortSignal.timeout(8000),
     });
 
@@ -64,7 +65,7 @@ export async function GET() {
           updateAvailable: false,
           error: `GitHub release check failed (${res.status})`,
         },
-        { status: 200 }
+        { status: 200, headers: { "Cache-Control": "no-store" } }
       );
     }
 
@@ -76,21 +77,24 @@ export async function GET() {
       latestVersion.length > 0 &&
       compareVersions(latestVersion, currentVersion) > 0;
 
-    return NextResponse.json({
-      currentVersion,
-      latestVersion,
-      tagName: release.tag_name,
-      updateAvailable,
-      title: release.name || release.tag_name,
-      url: release.html_url,
-      publishedAt: release.published_at,
-      notes: release.body || "",
-      assets: (release.assets || []).map((asset) => ({
-        name: asset.name,
-        url: asset.browser_download_url,
-        size: asset.size,
-      })),
-    });
+    return NextResponse.json(
+      {
+        currentVersion,
+        latestVersion,
+        tagName: release.tag_name,
+        updateAvailable,
+        title: release.name || release.tag_name,
+        url: release.html_url,
+        publishedAt: release.published_at,
+        notes: release.body || "",
+        assets: (release.assets || []).map((asset) => ({
+          name: asset.name,
+          url: asset.browser_download_url,
+          size: asset.size,
+        })),
+      },
+      { headers: { "Cache-Control": "no-store" } }
+    );
   } catch (e) {
     return NextResponse.json(
       {
@@ -98,7 +102,7 @@ export async function GET() {
         updateAvailable: false,
         error: e instanceof Error ? e.message : "Update check failed",
       },
-      { status: 200 }
+      { status: 200, headers: { "Cache-Control": "no-store" } }
     );
   }
 }

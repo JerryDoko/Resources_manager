@@ -4,6 +4,7 @@
  */
 const fs = require("fs");
 const path = require("path");
+const { execFileSync } = require("child_process");
 
 exports.default = async function afterPack(context) {
   const appName = context.packager.appInfo.productFilename;
@@ -35,5 +36,10 @@ exports.default = async function afterPack(context) {
     const bin = path.join(nodeDest, "bin", "node");
     if (fs.existsSync(bin)) fs.chmodSync(bin, 0o755);
     console.log(`[afterPack] 已拷贝 node → ${nodeDest}`);
+  }
+
+  if (context.electronPlatformName === "darwin") {
+    const appPath = path.join(context.appOutDir, `${appName}.app`);
+    execFileSync("xattr", ["-cr", appPath], { stdio: "inherit" });
   }
 };

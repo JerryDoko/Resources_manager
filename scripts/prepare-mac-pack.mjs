@@ -18,6 +18,7 @@ const ROOT = path.join(__dirname, "..");
 const DIST = path.join(ROOT, "dist-pack");
 const SERVER_OUT = path.join(DIST, "server");
 const NODE_OUT = path.join(DIST, "node");
+const RUNTIME_NODE_VERSION = process.env.RM_RUNTIME_NODE_VERSION || "20.15.1";
 
 const CONNECT_TIMEOUT_MS = 10_000;
 
@@ -65,7 +66,7 @@ async function downloadToFile(url, destFile) {
 }
 
 async function downloadNode(arch) {
-  const version = process.version.replace(/^v/, "");
+  const version = RUNTIME_NODE_VERSION;
   const platform = "darwin";
   const name = `node-v${version}-${platform}-${arch}`;
   const url = `https://nodejs.org/dist/v${version}/${name}.tar.gz`;
@@ -94,6 +95,35 @@ async function downloadNode(arch) {
   fs.chmodSync(path.join(NODE_OUT, "bin", "node"), 0o755);
   rmrf(destDir);
   console.log(`[pack] Node 已就绪 → ${NODE_OUT}`);
+}
+
+function verifyNativeRuntime() {
+  const nodeBin = path.join(NODE_OUT, "bin", "node");
+  const script = [
+    'const Database = require("better-sqlite3");',
+    'const db = new Database(":memory:");',
+    'db.exec("CREATE TABLE healthcheck (id INTEGER PRIMARY KEY)");',
+    "db.close();",
+    'console.log(`[pack] better-sqlite3 自检通过 (Node ${process.version}, ABI ${process.versions.modules})`);',
+  ].join("\n");
+  execFileSync(nodeBin, ["-e", script], {
+    cwd: SERVER_OUT,
+    stdio: "inherit",
+  });
+}
+
+function rebuildNativeModules() {
+  const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+  const runtimeBinDir = path.join(NODE_OUT, "bin");
+  console.log(`[pack] 使用 Node ${RUNTIME_NODE_VERSION} 重建 better-sqlite3 …`);
+  execFileSync(npmCommand, ["rebuild", "better-sqlite3"], {
+    cwd: ROOT,
+    env: {
+      ...process.env,
+      PATH: `${runtimeBinDir}${path.delimiter}${process.env.PATH || ""}`,
+    },
+    stdio: "inherit",
+  });
 }
 
 function prepareStandalone() {
@@ -131,10 +161,11 @@ function prepareStandalone() {
 
 async function main() {
   fs.mkdirSync(DIST, { recursive: true });
-  prepareStandalone();
-
   const arch = process.arch === "arm64" ? "arm64" : "x64";
   await downloadNode(arch);
+  rebuildNativeModules();
+  prepareStandalone();
+  verifyNativeRuntime();
 
   console.log("[pack] 准备完成。可运行: npm run dist:mac");
 }

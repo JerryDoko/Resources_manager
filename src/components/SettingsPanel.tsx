@@ -432,6 +432,20 @@ export function SettingsPanel() {
 
           <ShortcutSettings />
 
+          <section className="flex items-center justify-between gap-4 border-y border-[var(--line)] py-4">
+            <div className="min-w-0">
+              <h3 className="text-sm font-semibold">软件更新</h3>
+            </div>
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new Event("rm:check-for-updates"))}
+              className="flex shrink-0 items-center gap-1.5 rounded-xl border border-[var(--line)] bg-white px-3 py-2 text-xs text-[var(--ink-muted)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              检查更新
+            </button>
+          </section>
+
           <section>
             <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
               <Globe className="h-4 w-4 text-[var(--accent)]" />

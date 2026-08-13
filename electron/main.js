@@ -10,6 +10,12 @@ const fs = require("fs");
 const net = require("net");
 
 const isPackaged = app.isPackaged;
+const appDataRoot = app.getPath("appData");
+const stableUserDataDir =
+  process.env.RESOURCES_MANAGER_USER_DATA ||
+  path.join(appDataRoot, "resources-manager");
+app.setPath("userData", stableUserDataDir);
+
 const ROOT = isPackaged
   ? path.join(process.resourcesPath, "server")
   : path.join(__dirname, "..");
@@ -76,6 +82,71 @@ function findFreePort(preferred) {
 
 function dataDir() {
   return path.join(app.getPath("userData"), "data");
+}
+
+function readProfilesRegistry(root) {
+  const file = path.join(root, "profiles.json");
+  if (!fs.existsSync(file)) return null;
+  const registry = JSON.parse(fs.readFileSync(file, "utf8"));
+  if (!Array.isArray(registry.profiles)) return null;
+  return registry;
+}
+
+function mergeLegacyProfileData() {
+  const destination = dataDir();
+  const legacyRoots = [
+    path.join(appDataRoot, "Electron", "data"),
+    path.join(appDataRoot, "Resources Manager", "data"),
+  ];
+
+  fs.mkdirSync(destination, { recursive: true });
+  for (const source of legacyRoots) {
+    if (path.resolve(source) === path.resolve(destination)) continue;
+    let sourceRegistry;
+    try {
+      sourceRegistry = readProfilesRegistry(source);
+    } catch (error) {
+      console.warn(`[rm] 无法读取旧配置 ${source}`, error);
+      continue;
+    }
+    if (!sourceRegistry) continue;
+
+    const destinationRegistry = readProfilesRegistry(destination);
+    if (!destinationRegistry) {
+      fs.cpSync(source, destination, { recursive: true, force: false });
+      console.log(`[rm] 已迁移旧数据 → ${destination}`);
+      continue;
+    }
+
+    const existingIds = new Set(destinationRegistry.profiles.map((profile) => profile.id));
+    let changed = false;
+    for (const profile of sourceRegistry.profiles) {
+      if (!profile?.id || !/^[a-zA-Z0-9_-]+$/.test(profile.id) || existingIds.has(profile.id)) {
+        continue;
+      }
+      const sourceProfileDir = path.join(source, "profiles", profile.id);
+      const destinationProfileDir = path.join(destination, "profiles", profile.id);
+      if (!fs.existsSync(sourceProfileDir)) continue;
+
+      fs.mkdirSync(path.dirname(destinationProfileDir), { recursive: true });
+      fs.cpSync(sourceProfileDir, destinationProfileDir, {
+        recursive: true,
+        force: false,
+      });
+      destinationRegistry.profiles.push(profile);
+      existingIds.add(profile.id);
+      changed = true;
+      console.log(`[rm] 已导入旧配置：${profile.name || profile.id}`);
+    }
+
+    if (changed) {
+      fs.writeFileSync(
+        path.join(destination, "profiles.json"),
+        JSON.stringify(destinationRegistry, null, 2),
+        "utf8"
+      );
+    }
+  }
 }
 
 function applyDefaultProfileAtLaunch() {
@@ -353,6 +424,7 @@ app.whenReady().then(async () => {
 
   try {
     fs.mkdirSync(dataDir(), { recursive: true });
+    mergeLegacyProfileData();
     applyDefaultProfileAtLaunch();
   } catch {
     /* ignore */
