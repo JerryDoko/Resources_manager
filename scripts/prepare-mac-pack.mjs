@@ -147,11 +147,16 @@ function verifyNativeRuntime() {
 }
 
 function rebuildNativeModules() {
-  const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
   const runtimeBinDir =
     process.platform === "win32" ? NODE_OUT : path.join(NODE_OUT, "bin");
   console.log(`[pack] 使用 Node ${RUNTIME_NODE_VERSION} 重建 better-sqlite3 …`);
-  execFileSync(npmCommand, ["rebuild", "better-sqlite3"], {
+  const command = process.platform === "win32"
+    ? process.env.ComSpec || "cmd.exe"
+    : "npm";
+  const args = process.platform === "win32"
+    ? ["/d", "/s", "/c", "npm.cmd", "rebuild", "better-sqlite3"]
+    : ["rebuild", "better-sqlite3"];
+  execFileSync(command, args, {
     cwd: ROOT,
     env: {
       ...process.env,
