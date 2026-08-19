@@ -9,6 +9,7 @@ declare global {
       minimize: () => void;
       toggleFullscreen: () => void;
       isFullScreen?: () => Promise<boolean>;
+      chooseFolder?: (prompt?: string) => Promise<string | null>;
       onFullscreenChange?: (callback: (fullscreen: boolean) => void) => () => void;
     };
   }

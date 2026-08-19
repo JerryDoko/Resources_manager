@@ -61,8 +61,18 @@ export function SettingsPanel() {
   if (!showSettings) return null;
 
   const browseFinder = async () => {
-    setScanMsg("正在打开访达…");
+    setScanMsg("正在打开文件夹选择器…");
     try {
+      if (window.rmDesktop?.chooseFolder) {
+        const selectedPath = await window.rmDesktop.chooseFolder("选择媒体文件夹");
+        if (!selectedPath) {
+          setScanMsg(null);
+          return;
+        }
+        setPath(selectedPath);
+        setScanMsg(`已选择：${selectedPath}`);
+        return;
+      }
       const res = await fetch("/api/folders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -85,7 +95,7 @@ export function SettingsPanel() {
       setPath(data.path);
       setScanMsg(`已选择：${data.path}`);
     } catch {
-      setScanMsg("打开访达失败，请手动输入路径");
+      setScanMsg("打开文件夹选择器失败，请手动输入路径");
     }
   };
 
@@ -341,7 +351,7 @@ export function SettingsPanel() {
                 <input
                   value={path}
                   onChange={(e) => setPath(e.target.value)}
-                  placeholder="/Users/你/Movies 或点击右侧从访达选择"
+                  placeholder="输入文件夹路径，或点击右侧选择"
                   className="min-w-0 flex-1 rounded-xl border border-[var(--line)] px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[var(--accent)]"
                 />
                 <button
@@ -349,10 +359,10 @@ export function SettingsPanel() {
                   onClick={browseFinder}
                   disabled={scanning}
                   className="flex shrink-0 items-center gap-1.5 rounded-xl border border-[var(--line)] bg-white px-3 py-2.5 text-sm text-[var(--ink-muted)] hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50"
-                  title="在访达中选择文件夹"
+                  title="选择文件夹"
                 >
                   <FolderOpen className="h-4 w-4" />
-                  访达
+                  选择
                 </button>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row">

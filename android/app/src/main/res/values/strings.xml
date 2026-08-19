@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">资源管理器</string>
+    <string name="scan">扫描</string>
+    <string name="add_folder">添加文件夹</string>
+    <string name="search_hint">搜索名称</string>
+    <string name="reset_progress">重置进度</string>
+</resources>

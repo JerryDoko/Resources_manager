@@ -33,7 +33,10 @@ exports.default = async function afterPack(context) {
   if (fs.existsSync(nodeSrc)) {
     fs.rmSync(nodeDest, { recursive: true, force: true });
     fs.cpSync(nodeSrc, nodeDest, { recursive: true });
-    const bin = path.join(nodeDest, "bin", "node");
+    const bin =
+      context.electronPlatformName === "win32"
+        ? path.join(nodeDest, "node.exe")
+        : path.join(nodeDest, "bin", "node");
     if (fs.existsSync(bin)) fs.chmodSync(bin, 0o755);
     console.log(`[afterPack] 已拷贝 node → ${nodeDest}`);
   }

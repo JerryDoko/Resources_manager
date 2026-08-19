@@ -2,7 +2,7 @@
  * Resources Manager — Electron 壳
  * 开发：启动 npm next；打包：启动内置 Node + standalone server
  */
-const { app, BrowserWindow, shell, Menu, ipcMain } = require("electron");
+const { app, BrowserWindow, shell, Menu, ipcMain, dialog } = require("electron");
 const { spawn } = require("child_process");
 const http = require("http");
 const path = require("path");
@@ -169,7 +169,10 @@ function applyDefaultProfileAtLaunch() {
 
 function startPackagedServer() {
   const serverJs = path.join(ROOT, "server.js");
-  const nodeBin = path.join(process.resourcesPath, "node", "bin", "node");
+  const nodeBin =
+    process.platform === "win32"
+      ? path.join(process.resourcesPath, "node", "node.exe")
+      : path.join(process.resourcesPath, "node", "bin", "node");
   if (!fs.existsSync(serverJs)) {
     throw new Error(`找不到打包服务: ${serverJs}`);
   }
@@ -343,6 +346,13 @@ function createWindow() {
 }
 
 ipcMain.handle("rm:is-fullscreen", () => mainWindow?.isFullScreen() ?? false);
+ipcMain.handle("rm:choose-folder", async (_event, prompt) => {
+  const result = await dialog.showOpenDialog(mainWindow || undefined, {
+    title: typeof prompt === "string" ? prompt : "选择媒体文件夹",
+    properties: ["openDirectory", "createDirectory"],
+  });
+  return result.canceled ? null : result.filePaths[0] || null;
+});
 
 ipcMain.on("rm:window-close", () => mainWindow?.close());
 ipcMain.on("rm:window-minimize", () => mainWindow?.minimize());

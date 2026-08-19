@@ -67,8 +67,20 @@ export function ImportView() {
 
   const browseFinder = async () => {
     const requestProfileId = activeProfileId;
-    setMsg("正在打开访达…");
+    setMsg("正在打开文件夹选择器…");
     try {
+      if (window.rmDesktop?.chooseFolder) {
+        const selectedPath = await window.rmDesktop.chooseFolder("选择媒体文件夹");
+        if (!mounted.current) return;
+        if (!selectedPath) {
+          setMsg(null);
+          return;
+        }
+        setPath(selectedPath);
+        setMsg(null);
+        setShowAdd(true);
+        return;
+      }
       const res = await fetch("/api/folders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -87,7 +99,7 @@ export function ImportView() {
         setShowAdd(true);
       } else setMsg(null);
     } catch {
-      setMsg("打开访达失败");
+      setMsg("打开文件夹选择器失败");
     }
   };
 
@@ -203,7 +215,7 @@ export function ImportView() {
               <input
                 value={path}
                 onChange={(e) => setPath(e.target.value)}
-                placeholder="/Users/你/Movies"
+                placeholder="输入文件夹路径"
                 className="min-w-0 flex-1 rounded-xl border border-[var(--line)] bg-white/50 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[var(--accent)]"
               />
               <button
@@ -213,7 +225,7 @@ export function ImportView() {
                 className="flex shrink-0 items-center gap-1.5 rounded-xl border border-[var(--line)] bg-white/50 px-3 py-2.5 text-sm"
               >
                 <FolderOpen className="h-4 w-4" />
-                访达
+                选择
               </button>
               <button
                 type="button"

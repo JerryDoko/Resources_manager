@@ -1,6 +1,6 @@
 {
   "name": "resources-manager",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "private": true,
   "description": "本地一体化资源管理器 — 漫画、条漫、小说、视频、音乐与照片，私有、离线、自动整理",
   "author": "JerryDoko",
@@ -19,7 +19,9 @@
     "electron": "electron electron/main.js",
     "pack:prepare": "node scripts/prepare-mac-pack.mjs",
     "dist:mac": "electron-builder --mac --publish never",
-    "release:mac": "npm run pack:prepare && npm run dist:mac"
+    "release:mac": "npm run pack:prepare && npm run dist:mac",
+    "dist:win": "electron-builder --win --x64 --publish never",
+    "release:win": "npm run pack:prepare && npm run dist:win"
   },
   "main": "electron/main.js",
   "dependencies": {
@@ -95,6 +97,33 @@
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
       "identity": null
+    },
+    "win": {
+      "icon": "build-resources/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "artifactName": "Resources-Manager-${version}-windows-${arch}-setup.${ext}",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "portable": {
+      "artifactName": "Resources-Manager-${version}-windows-${arch}-portable.${ext}"
     },
     "dmg": {
       "title": "Resources Manager",
