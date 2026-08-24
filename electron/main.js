@@ -353,6 +353,12 @@ ipcMain.handle("rm:choose-folder", async (_event, prompt) => {
   });
   return result.canceled ? null : result.filePaths[0] || null;
 });
+ipcMain.handle("rm:reveal-item", (_event, targetPath) => {
+  if (typeof targetPath !== "string" || !path.isAbsolute(targetPath)) return false;
+  if (!fs.existsSync(targetPath)) return false;
+  shell.showItemInFolder(targetPath);
+  return true;
+});
 
 ipcMain.on("rm:window-close", () => mainWindow?.close());
 ipcMain.on("rm:window-minimize", () => mainWindow?.minimize());

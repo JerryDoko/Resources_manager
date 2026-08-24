@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld("rmDesktop", {
   toggleFullscreen: () => ipcRenderer.send("rm:window-toggle-fullscreen"),
   isFullScreen: () => ipcRenderer.invoke("rm:is-fullscreen"),
   chooseFolder: (prompt) => ipcRenderer.invoke("rm:choose-folder", prompt),
+  revealItem: (targetPath) => ipcRenderer.invoke("rm:reveal-item", targetPath),
   onFullscreenChange: (callback) => {
     const listener = (_event, value) => callback(!!value);
     ipcRenderer.on("rm:fullscreen-changed", listener);

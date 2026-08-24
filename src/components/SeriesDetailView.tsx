@@ -183,6 +183,7 @@ export function SeriesDetailView({
   const didDrag = useRef(false);
   const lastClickedId = useRef<string | null>(null);
   const sortMenuRef = useRef<HTMLDivElement>(null);
+  const restoreViewedItemId = useRef<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -306,6 +307,44 @@ export function SeriesDetailView({
     }
     setViewerItemId(item.id);
   };
+
+  const closeViewer = useCallback(() => {
+    const viewedId = viewerItemId;
+    if (viewedId) {
+      restoreViewedItemId.current = viewedId;
+      setFocusedItemId(viewedId);
+      lastClickedId.current = viewedId;
+    }
+    setViewerItemId(null);
+    refresh();
+  }, [refresh, viewerItemId]);
+
+  const updateImageProgress = useCallback((itemId: string, progress: number) => {
+    setData((current) =>
+      current
+        ? {
+            ...current,
+            progress,
+            items: current.items.map((item) =>
+              item.id === itemId ? { ...item, progress } : item
+            ),
+          }
+        : current
+    );
+  }, []);
+
+  const revealItemPath = useCallback(async (itemPath: string) => {
+    if (window.rmDesktop?.revealItem) {
+      await window.rmDesktop.revealItem(itemPath);
+      return;
+    }
+    await fetch("/api/system/reveal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: itemPath }),
+      signal: AbortSignal.timeout(10000),
+    });
+  }, []);
 
   const setItemRating = async (itemId: string, rating: number) => {
     await fetch("/api/items", {
@@ -478,6 +517,28 @@ export function SeriesDetailView({
         height: Math.abs(drag.y1 - drag.y0),
       }
     : null;
+  const isImageSequence = ["manga", "webtoon", "photo"].includes(
+    data?.mediaType ?? ""
+  );
+
+  useEffect(() => {
+    if (viewerItemId !== null || !restoreViewedItemId.current) return;
+    const itemId = restoreViewedItemId.current;
+    let frame = 0;
+    let attempts = 0;
+    const restore = () => {
+      const row = itemRefs.current.get(itemId);
+      if (row) {
+        row.scrollIntoView({ block: "center", behavior: "auto" });
+        restoreViewedItemId.current = null;
+        return;
+      }
+      if (attempts++ < 6) frame = requestAnimationFrame(restore);
+      else restoreViewedItemId.current = null;
+    };
+    frame = requestAnimationFrame(restore);
+    return () => cancelAnimationFrame(frame);
+  }, [viewerItemId, data, itemRatingFilter, itemSortKey, itemSortDirection]);
 
   // 播放器独占：不与详情页 DOM 并存，避免叠层
   if (isActive && viewerItem && data) {
@@ -497,13 +558,15 @@ export function SeriesDetailView({
                 ? "photo"
                 : "manga"
           }
+          itemPath={viewerItem.path}
           playlist={sortedAllItems.map((i) => ({
             id: i.id,
             title: i.title,
             path: i.path,
           }))}
           onChangeItem={setViewerItemId}
-          onClose={() => setViewerItemId(null)}
+          onProgressChange={updateImageProgress}
+          onClose={closeViewer}
         />
       );
     }
@@ -671,13 +734,24 @@ export function SeriesDetailView({
                         </div>
                       </dl>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => openItem(focusedItem)}
-                      className="w-full rounded-xl bg-[var(--accent)] px-3 py-2.5 text-sm font-medium text-white"
-                    >
-                      打开查看
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => openItem(focusedItem)}
+                        className="min-w-0 flex-1 rounded-xl bg-[var(--accent)] px-3 py-2.5 text-sm font-medium text-white"
+                      >
+                        打开查看
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => revealItemPath(focusedItem.path)}
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--line)] bg-white text-[var(--ink-muted)] transition hover:border-[var(--accent)]/40 hover:text-[var(--accent)]"
+                        title="在访达/文件夹中显示"
+                        aria-label="在访达或文件夹中显示此图片"
+                      >
+                        <FolderOpen className="h-4 w-4" />
+                      </button>
+                    </div>
                   </>
                 ) : (
                   <>
@@ -761,6 +835,22 @@ export function SeriesDetailView({
                       </dl>
                     </div>
                   </>
+                )}
+                {isImageSequence && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs text-[var(--ink-muted)]">
+                      <span>观看进度</span>
+                      <span className="tabular-nums">
+                        {Math.round(data.progress * 100)}%
+                      </span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-[var(--line)]">
+                      <div
+                        className="h-full bg-[var(--accent-hot)] transition-[width] duration-200"
+                        style={{ width: `${Math.min(100, data.progress * 100)}%` }}
+                      />
+                    </div>
+                  </div>
                 )}
               </div>
             </div>

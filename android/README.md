@@ -19,7 +19,7 @@ Use JDK 17 and Android SDK 35:
 
 ```sh
 gradle -p android :app:assembleRelease \
-  -PappVersion=1.1.5 \
+  -PappVersion=1.1.6 \
   -PversionCode=10500
 ```
 

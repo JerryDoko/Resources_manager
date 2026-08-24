@@ -137,7 +137,8 @@ export function resolveSeriesFromImageFolder(
 
 export async function scanFolder(
   folderPath: string,
-  mediaType: MediaType
+  mediaType: MediaType,
+  recursive = true
 ): Promise<ScanResult> {
   const result: ScanResult = {
     scanned: 0,
@@ -154,7 +155,7 @@ export async function scanFolder(
 
   const db = getDb();
   const now = Date.now();
-  const allFiles = walkDir(folderPath);
+  const allFiles = walkDir(folderPath, recursive ? 32 : 0);
   const matched = allFiles.filter((f) => matchMediaType(f, mediaType) === mediaType);
   result.scanned = matched.length;
 
@@ -614,7 +615,11 @@ export async function scanAllFolders(): Promise<ScanResult> {
   };
 
   for (const folder of folders) {
-    const r = await scanFolder(folder.path, folder.mediaType as MediaType);
+    const r = await scanFolder(
+      folder.path,
+      folder.mediaType as MediaType,
+      folder.recursive
+    );
     aggregate.scanned += r.scanned;
     aggregate.added += r.added;
     aggregate.updated += r.updated;

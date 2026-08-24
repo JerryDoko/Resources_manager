@@ -22,6 +22,7 @@ function ensureSchema(sqlite: Database.Database) {
       path TEXT NOT NULL UNIQUE,
       media_type TEXT NOT NULL,
       enabled INTEGER NOT NULL DEFAULT 1,
+      recursive INTEGER NOT NULL DEFAULT 1,
       created_at INTEGER NOT NULL
     );
 
@@ -93,6 +94,15 @@ function ensureSchema(sqlite: Database.Database) {
       value TEXT NOT NULL
     );
   `);
+
+  const folderCols = sqlite
+    .prepare("PRAGMA table_info(library_folders)")
+    .all() as { name: string }[];
+  if (!folderCols.some((c) => c.name === "recursive")) {
+    sqlite.exec(
+      "ALTER TABLE library_folders ADD COLUMN recursive INTEGER NOT NULL DEFAULT 1"
+    );
+  }
 
   const itemCols = sqlite
     .prepare("PRAGMA table_info(media_items)")

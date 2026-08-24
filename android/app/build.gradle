@@ -2,7 +2,7 @@ plugins {
     id "com.android.application"
 }
 
-def appVersion = providers.gradleProperty("appVersion").orElse("1.1.5").get()
+def appVersion = providers.gradleProperty("appVersion").orElse("1.1.6").get()
 def buildNumber = providers.gradleProperty("versionCode").orElse("10500").get().toInteger()
 
 android {

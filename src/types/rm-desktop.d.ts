@@ -10,6 +10,7 @@ declare global {
       toggleFullscreen: () => void;
       isFullScreen?: () => Promise<boolean>;
       chooseFolder?: (prompt?: string) => Promise<string | null>;
+      revealItem?: (targetPath: string) => Promise<boolean>;
       onFullscreenChange?: (callback: (fullscreen: boolean) => void) => () => void;
     };
   }

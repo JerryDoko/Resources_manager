@@ -28,6 +28,7 @@ function SeriesThumb({ series, mediaType }: { series: SeriesCard; mediaType: str
   const hues = ["#1f6f6a", "#2d4a6f", "#6f4a2d", "#4a6f3a", "#6f2d4a", "#3a4a6f"];
   const hue = hues[(series.title.charCodeAt(0) || 0) % hues.length];
   const src = `/api/thumbnails/${series.id}`;
+  const showsProgress = ["video", "photo", "manga", "webtoon"].includes(mediaType);
 
   return (
     <div
@@ -52,7 +53,7 @@ function SeriesThumb({ series, mediaType }: { series: SeriesCard; mediaType: str
           </span>
         </div>
       )}
-      {mediaType === "video" && (
+      {showsProgress && (
         <>
           <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-black/40">
             <div

@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { addFolder, listFolders, removeFolder } from "@/lib/library";
+import {
+  addFolder,
+  listFolders,
+  removeFolder,
+  updateFolderRecursive,
+} from "@/lib/library";
 import { scanAllFolders, scanFolder, regenerateAllThumbnails } from "@/lib/scanner";
 import { chooseFolderInFinder } from "@/lib/finder";
 import type { MediaType } from "@/lib/types";
@@ -37,16 +42,18 @@ export async function POST(req: NextRequest) {
           path: string;
           mediaType: MediaType;
         };
+        const recursive = body.recursive !== false;
         if (!folderPath || !mediaType) {
           return NextResponse.json({ error: "缺少 path 或 mediaType" }, { status: 400 });
         }
         if (!fs.existsSync(folderPath)) {
           return NextResponse.json({ error: "文件夹不存在" }, { status: 400 });
         }
-        const folder = addFolder(folderPath, mediaType);
+        const folder = addFolder(folderPath, mediaType, recursive);
         const result = await scanFolder(
           folderPath.replace(/\/+$/, "") || folderPath,
-          mediaType
+          mediaType,
+          recursive
         );
         return NextResponse.json({ folder, scan: result, activeProfileId: profileId });
       }
@@ -54,7 +61,7 @@ export async function POST(req: NextRequest) {
       if (action === "scan") {
         const result =
           body.path && body.mediaType
-            ? await scanFolder(body.path, body.mediaType)
+            ? await scanFolder(body.path, body.mediaType, body.recursive !== false)
             : await scanAllFolders();
         return NextResponse.json({ scan: result, activeProfileId: profileId });
       }
@@ -67,6 +74,20 @@ export async function POST(req: NextRequest) {
       if (action === "remove") {
         removeFolder(body.id);
         return NextResponse.json({ ok: true, activeProfileId: profileId });
+      }
+
+      if (action === "set-recursive") {
+        if (!body.id || typeof body.recursive !== "boolean") {
+          return NextResponse.json(
+            { error: "缺少 id 或 recursive" },
+            { status: 400 }
+          );
+        }
+        const folder = updateFolderRecursive(body.id, body.recursive);
+        if (!folder) {
+          return NextResponse.json({ error: "导入路径不存在" }, { status: 404 });
+        }
+        return NextResponse.json({ folder, activeProfileId: profileId });
       }
 
       return NextResponse.json({ error: "未知操作" }, { status: 400 });

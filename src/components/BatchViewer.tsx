@@ -18,6 +18,7 @@ export function BatchViewer() {
         itemId={batchSession.currentId}
         title={`${current.seriesTitle} · ${current.title}`}
         mediaType="manga"
+        itemPath={current.path}
         playlist={batchSession.items.map((i) => ({
           id: i.id,
           title: `${i.seriesTitle} · ${i.title}`,

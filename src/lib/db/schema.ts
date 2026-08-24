@@ -5,6 +5,7 @@ export const libraryFolders = sqliteTable("library_folders", {
   path: text("path").notNull().unique(),
   mediaType: text("media_type").notNull(),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  recursive: integer("recursive", { mode: "boolean" }).notNull().default(true),
   createdAt: integer("created_at").notNull(),
 });
 

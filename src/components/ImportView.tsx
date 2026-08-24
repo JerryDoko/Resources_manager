@@ -16,6 +16,7 @@ interface Folder {
   path: string;
   mediaType: string;
   enabled: boolean;
+  recursive: boolean;
 }
 
 export function ImportView() {
@@ -26,12 +27,26 @@ export function ImportView() {
   const [adding, setAdding] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [recursive, setRecursive] = useState(true);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
   const loadSeq = useRef(0);
   const mounted = useRef(true);
 
   const typeLabel = MEDIA_TYPE_LABELS[mediaType];
   const filteredFolders = folders.filter((f) => f.mediaType === mediaType);
+
+  const toggleAddPanel = () => {
+    setShowAdd((visible) => {
+      if (!visible) setRecursive(true);
+      return !visible;
+    });
+  };
+
+  const openAddPanel = () => {
+    setRecursive(true);
+    setShowAdd(true);
+  };
 
   const load = useCallback(async () => {
     const seq = ++loadSeq.current;
@@ -116,6 +131,7 @@ export function ImportView() {
           action: "add",
           path: path.trim(),
           mediaType,
+          recursive,
           profileId: requestProfileId,
         }),
         signal: AbortSignal.timeout(600000),
@@ -152,6 +168,7 @@ export function ImportView() {
           action: "scan",
           path: folder.path,
           mediaType: folder.mediaType,
+          recursive: folder.recursive,
           profileId: requestProfileId,
         }),
         signal: AbortSignal.timeout(600000),
@@ -170,6 +187,43 @@ export function ImportView() {
       setMsg(e instanceof Error ? e.message : "扫描失败");
     } finally {
       setScanningId(null);
+    }
+  };
+
+  const setFolderRecursive = async (folder: Folder, value: boolean) => {
+    const requestProfileId = activeProfileId;
+    setUpdatingId(folder.id);
+    setMsg(null);
+    setFolders((current) =>
+      current.map((item) =>
+        item.id === folder.id ? { ...item, recursive: value } : item
+      )
+    );
+    try {
+      const res = await fetch("/api/folders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "set-recursive",
+          id: folder.id,
+          recursive: value,
+          profileId: requestProfileId,
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+      const data = await res.json();
+      if (!mounted.current || data.activeProfileId !== requestProfileId) return;
+      if (!res.ok) throw new Error(data.error || "更新扫描范围失败");
+      setMsg(value ? "已设为递归导入，重新扫描时包含子文件夹" : "已设为仅导入当前文件夹");
+    } catch (e) {
+      setFolders((current) =>
+        current.map((item) =>
+          item.id === folder.id ? { ...item, recursive: folder.recursive } : item
+        )
+      );
+      setMsg(e instanceof Error ? e.message : "更新扫描范围失败");
+    } finally {
+      setUpdatingId(null);
     }
   };
 
@@ -200,7 +254,7 @@ export function ImportView() {
         </div>
         <button
           type="button"
-          onClick={() => setShowAdd((v) => !v)}
+          onClick={toggleAddPanel}
           className="flex items-center gap-1.5 rounded-xl border border-[var(--line)] bg-white/50 px-3 py-2 text-sm hover:bg-white/80"
         >
           <FolderPlus className="h-4 w-4 text-[var(--accent)]" />
@@ -211,12 +265,12 @@ export function ImportView() {
       {showAdd && (
         <section className="glass rounded-2xl p-4">
           <div className="flex flex-col gap-2">
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <input
                 value={path}
                 onChange={(e) => setPath(e.target.value)}
                 placeholder="输入文件夹路径"
-                className="min-w-0 flex-1 rounded-xl border border-[var(--line)] bg-white/50 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                className="min-w-0 flex-1 basis-72 rounded-xl border border-[var(--line)] bg-white/50 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[var(--accent)]"
               />
               <button
                 type="button"
@@ -236,9 +290,34 @@ export function ImportView() {
                 添加并扫描
               </button>
             </div>
-            <p className="text-xs text-[var(--ink-faint)]">
-              将导入为「{typeLabel}」类型
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs text-[var(--ink-faint)]">
+                将导入为「{typeLabel}」类型
+              </p>
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-[var(--ink-muted)]">
+                <span>递归导入子文件夹</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={recursive}
+                  onClick={() => setRecursive((value) => !value)}
+                  disabled={scanning}
+                  className={cn(
+                    "relative h-5 w-9 shrink-0 rounded-full border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 disabled:opacity-50",
+                    recursive
+                      ? "border-[var(--accent)] bg-[var(--accent)]"
+                      : "border-[var(--line)] bg-[var(--bg)]"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
+                      recursive ? "translate-x-4" : "translate-x-0"
+                    )}
+                  />
+                </button>
+              </label>
+            </div>
           </div>
         </section>
       )}
@@ -253,7 +332,7 @@ export function ImportView() {
             </p>
             <button
               type="button"
-              onClick={() => setShowAdd(true)}
+              onClick={openAddPanel}
               className="mt-3 text-sm text-[var(--accent)] underline"
             >
               添加第一个文件夹
@@ -266,39 +345,69 @@ export function ImportView() {
               return (
                 <li
                   key={f.id}
-                  className="flex items-center gap-3 py-3 first:pt-0 last:pb-0"
+                  className="flex flex-wrap items-center gap-3 py-3 first:pt-0 last:pb-0"
                 >
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1 basis-64">
                     <p
                       className="break-all text-sm font-medium leading-snug"
                       title={f.path}
                     >
                       {f.path}
                     </p>
+                    <p className="mt-1 text-xs text-[var(--ink-faint)]">
+                      {f.recursive ? "包含所有子文件夹" : "仅当前文件夹"}
+                    </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => rescanFolder(f)}
-                    disabled={scanning}
-                    className={cn(
-                      "flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--line)] px-3 py-1.5 text-xs transition",
-                      busy
-                        ? "bg-[var(--accent-soft)] text-[var(--accent)]"
-                        : "bg-white/50 hover:bg-white/80"
-                    )}
-                  >
-                    <RefreshCw className={cn("h-3.5 w-3.5", busy && "animate-spin")} />
-                    重新扫描
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => remove(f.id)}
-                    disabled={scanning}
-                    className="shrink-0 rounded-lg p-2 text-[var(--ink-faint)] hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
-                    title="移除导入路径"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  <div className="ml-auto flex shrink-0 items-center gap-3">
+                    <label className="flex cursor-pointer items-center gap-2 text-xs text-[var(--ink-muted)]">
+                      <span>递归</span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-label={`${f.path} 递归导入子文件夹`}
+                        aria-checked={f.recursive}
+                        onClick={() => setFolderRecursive(f, !f.recursive)}
+                        disabled={scanning || updatingId === f.id}
+                        className={cn(
+                          "relative h-5 w-9 shrink-0 rounded-full border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 disabled:opacity-50",
+                          f.recursive
+                            ? "border-[var(--accent)] bg-[var(--accent)]"
+                            : "border-[var(--line)] bg-[var(--bg)]"
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
+                            f.recursive ? "translate-x-4" : "translate-x-0"
+                          )}
+                        />
+                      </button>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => rescanFolder(f)}
+                      disabled={scanning}
+                      className={cn(
+                        "flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--line)] px-3 py-1.5 text-xs transition",
+                        busy
+                          ? "bg-[var(--accent-soft)] text-[var(--accent)]"
+                          : "bg-white/50 hover:bg-white/80"
+                      )}
+                    >
+                      <RefreshCw className={cn("h-3.5 w-3.5", busy && "animate-spin")} />
+                      重新扫描
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => remove(f.id)}
+                      disabled={scanning}
+                      className="shrink-0 rounded-lg p-2 text-[var(--ink-faint)] hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
+                      title="移除导入路径"
+                      aria-label="移除导入路径"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 </li>
               );
             })}

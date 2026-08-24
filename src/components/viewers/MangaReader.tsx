@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { X, ChevronLeft, ChevronRight, Play, Pause } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, Play, Pause, FolderOpen } from "lucide-react";
 import { FullscreenPortal } from "./FullscreenPortal";
 import { useAppChrome } from "@/lib/useAppChrome";
 
@@ -15,10 +15,12 @@ interface Props {
   itemId: string;
   title: string;
   mediaType: string;
+  itemPath?: string;
   onClose: () => void;
   /** 同系列图片项，用于文件夹漫画连续翻页 / 放映 */
   playlist?: MangaPageItem[];
   onChangeItem?: (id: string) => void;
+  onProgressChange?: (itemId: string, progress: number) => void;
 }
 
 const IMAGE_PAGE_RE = /\.(jpe?g|png|webp|gif|avif|apng|bmp)$/i;
@@ -32,9 +34,11 @@ export function MangaReader({
   itemId,
   title,
   mediaType,
+  itemPath,
   onClose,
   playlist = [],
   onChangeItem,
+  onProgressChange,
 }: Props) {
   const [archivePages, setArchivePages] = useState<string[]>([]);
   const [archiveIndex, setArchiveIndex] = useState(0);
@@ -48,6 +52,7 @@ export function MangaReader({
   const [chromeVisible, setChromeVisible] = useState(true);
   const imgRef = useRef<HTMLImageElement>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | 0>(0);
+  const progressSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const { viewerHeaderClass } = useAppChrome();
 
   const imagePlaylist = useMemo(
@@ -118,6 +123,8 @@ export function MangaReader({
         : title;
 
   const animated = isLikelyAnimated(currentName);
+  const currentPath =
+    mode === "playlist" ? imagePlaylist[playlistIndex]?.path || itemPath : itemPath;
 
   const imageSrc =
     mode === "archive"
@@ -201,6 +208,11 @@ export function MangaReader({
     hideTimer.current = setTimeout(() => setChromeVisible(false), 2500);
   }, []);
 
+  const closeReader = useCallback(async () => {
+    await progressSaveQueue.current.catch(() => {});
+    onClose();
+  }, [onClose]);
+
   useEffect(() => {
     bumpChrome();
     return () => {
@@ -210,7 +222,7 @@ export function MangaReader({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") void closeReader();
       if (e.key === "ArrowRight" || e.key === " ") {
         e.preventDefault();
         go(1);
@@ -224,26 +236,31 @@ export function MangaReader({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [go, onClose, bumpChrome]);
+  }, [go, closeReader, bumpChrome]);
 
   useEffect(() => {
-    if (totalPages <= 1) return;
+    if (totalPages <= 0) return;
     const progress =
       mode === "archive"
         ? (archiveIndex + 1) / archivePages.length
         : mode === "playlist"
           ? (playlistIndex + 1) / imagePlaylist.length
-          : 0;
-    fetch("/api/items", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "progress",
-        id: itemId,
-        progress,
-      }),
-      signal: AbortSignal.timeout(10000),
-    }).catch(() => {});
+          : 1;
+    onProgressChange?.(itemId, progress);
+    progressSaveQueue.current = progressSaveQueue.current
+      .catch(() => {})
+      .then(async () => {
+        await fetch("/api/items", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "progress",
+            id: itemId,
+            progress,
+          }),
+          signal: AbortSignal.timeout(10000),
+        });
+      });
   }, [
     archiveIndex,
     archivePages.length,
@@ -251,6 +268,7 @@ export function MangaReader({
     imagePlaylist.length,
     itemId,
     mode,
+    onProgressChange,
     totalPages,
   ]);
 
@@ -260,6 +278,20 @@ export function MangaReader({
       : totalPages > 0
         ? `${currentPage + 1} / ${totalPages}`
         : "—";
+
+  const revealCurrentImage = useCallback(async () => {
+    if (!currentPath) return;
+    if (window.rmDesktop?.revealItem) {
+      await window.rmDesktop.revealItem(currentPath);
+      return;
+    }
+    await fetch("/api/system/reveal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: currentPath }),
+      signal: AbortSignal.timeout(10000),
+    });
+  }, [currentPath]);
 
   return (
     <FullscreenPortal className="fixed inset-0 z-[300] flex flex-col bg-[#0f1415] animate-viewer-in">
@@ -278,6 +310,17 @@ export function MangaReader({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {currentPath && (
+            <button
+              type="button"
+              onClick={revealCurrentImage}
+              className="rounded-lg p-2 hover:bg-white/10"
+              title="在访达/文件夹中显示"
+              aria-label="在访达或文件夹中显示当前图片"
+            >
+              <FolderOpen className="h-5 w-5" />
+            </button>
+          )}
           {(mode === "archive" || mode === "playlist") && totalPages > 1 && (
             <>
               <label className="flex items-center gap-1 text-xs text-white/50">
@@ -308,7 +351,11 @@ export function MangaReader({
               </button>
             </>
           )}
-          <button onClick={onClose} className="rounded-lg p-2 hover:bg-white/10">
+          <button
+            onClick={() => void closeReader()}
+            className="rounded-lg p-2 hover:bg-white/10"
+            aria-label="关闭图片查看器"
+          >
             <X className="h-5 w-5" />
           </button>
         </div>

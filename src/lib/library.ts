@@ -279,8 +279,9 @@ export function mergeSeries(
 export function updateItemProgress(id: string, progress: number) {
   const db = getDb();
   const now = Date.now();
+  const clamped = Math.max(0, Math.min(1, progress));
   db.update(schema.mediaItems)
-    .set({ progress, updatedAt: now })
+    .set({ progress: clamped, updatedAt: now })
     .where(eq(schema.mediaItems.id, id))
     .run();
 
@@ -291,12 +292,21 @@ export function updateItemProgress(id: string, progress: number) {
       .from(schema.mediaItems)
       .where(eq(schema.mediaItems.seriesId, item.seriesId))
       .all();
-    const avg =
-      items.length === 0
+    const parent = db
+      .select({ mediaType: schema.series.mediaType })
+      .from(schema.series)
+      .where(eq(schema.series.id, item.seriesId))
+      .get();
+    const isImageSequence = ["manga", "webtoon", "photo"].includes(
+      parent?.mediaType ?? ""
+    );
+    const seriesProgress = isImageSequence
+      ? clamped
+      : items.length === 0
         ? 0
         : items.reduce((sum, i) => sum + i.progress, 0) / items.length;
     db.update(schema.series)
-      .set({ progress: avg, updatedAt: now })
+      .set({ progress: seriesProgress, updatedAt: now })
       .where(eq(schema.series.id, item.seriesId))
       .run();
   }
@@ -388,7 +398,11 @@ export function listFolders() {
   return getDb().select().from(schema.libraryFolders).all();
 }
 
-export function addFolder(folderPath: string, mediaType: MediaType) {
+export function addFolder(
+  folderPath: string,
+  mediaType: MediaType,
+  recursive = true
+) {
   const db = getDb();
   // 统一去掉尾部斜杠，避免同一路径因 `/` 差异被当成两条
   const normalized = folderPath.replace(/\/+$/, "") || folderPath;
@@ -407,7 +421,7 @@ export function addFolder(folderPath: string, mediaType: MediaType) {
 
   if (existing) {
     db.update(schema.libraryFolders)
-      .set({ path: normalized, mediaType, enabled: true })
+      .set({ path: normalized, mediaType, enabled: true, recursive })
       .where(eq(schema.libraryFolders.id, existing.id))
       .run();
     return db
@@ -424,10 +438,24 @@ export function addFolder(folderPath: string, mediaType: MediaType) {
       path: normalized,
       mediaType,
       enabled: true,
+      recursive,
       createdAt: Date.now(),
     })
     .run();
   return db.select().from(schema.libraryFolders).where(eq(schema.libraryFolders.id, id)).get();
+}
+
+export function updateFolderRecursive(id: string, recursive: boolean) {
+  const db = getDb();
+  db.update(schema.libraryFolders)
+    .set({ recursive })
+    .where(eq(schema.libraryFolders.id, id))
+    .run();
+  return db
+    .select()
+    .from(schema.libraryFolders)
+    .where(eq(schema.libraryFolders.id, id))
+    .get();
 }
 
 export function removeFolder(id: string) {
@@ -590,10 +618,15 @@ export function importBackup(data: ReturnType<typeof exportBackup>) {
     }
 
     const insertFolder = sqlite.prepare(`
-      INSERT INTO library_folders (id, path, media_type, enabled, created_at)
-      VALUES (@id, @path, @mediaType, @enabled, @createdAt)
+      INSERT INTO library_folders (id, path, media_type, enabled, recursive, created_at)
+      VALUES (@id, @path, @mediaType, @enabled, @recursive, @createdAt)
     `);
-    for (const f of data.folders) insertFolder.run(f);
+    for (const f of data.folders) {
+      insertFolder.run({
+        ...f,
+        recursive: (f as { recursive?: boolean }).recursive ?? true,
+      });
+    }
 
     const insertSetting = sqlite.prepare(
       `INSERT INTO settings (key, value) VALUES (@key, @value)`
