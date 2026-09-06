@@ -19,7 +19,7 @@ export function listSeries(opts: {
   const {
     mediaType,
     search,
-    sortBy = "updated",
+    sortBy = "title",
     tagIds,
     tagMatch = "any",
     limit = 200,
@@ -510,6 +510,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   autoScan: false,
   videoShortcuts: JSON.stringify(DEFAULT_VIDEO_SHORTCUTS),
   uiScale: 1,
+  librarySortLocked: false,
+  librarySortBy: "title",
+  itemSortPreferences: {},
 };
 
 export function getSettings(): AppSettings {
@@ -523,7 +526,33 @@ export function getSettings(): AppSettings {
     autoScan: map.autoScan === "true",
     videoShortcuts: map.videoShortcuts || DEFAULT_SETTINGS.videoShortcuts,
     uiScale: Number(map.uiScale ?? DEFAULT_SETTINGS.uiScale) || 1,
+    librarySortLocked: map.librarySortLocked === "true",
+    librarySortBy: (["title", "rating", "author", "updated", "added", "capture"] as const).includes(
+      map.librarySortBy as AppSettings["librarySortBy"]
+    )
+      ? (map.librarySortBy as AppSettings["librarySortBy"])
+      : DEFAULT_SETTINGS.librarySortBy,
+    itemSortPreferences: parseItemSortPreferences(map.itemSortPreferences),
   };
+}
+
+function parseItemSortPreferences(value?: string): AppSettings["itemSortPreferences"] {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value) as Record<
+      string,
+      { key?: unknown; direction?: unknown }
+    >;
+    return Object.fromEntries(
+      Object.entries(parsed).filter(
+        ([, preference]) =>
+          ["name", "created", "updated"].includes(String(preference?.key)) &&
+          ["asc", "desc"].includes(String(preference?.direction))
+      )
+    ) as AppSettings["itemSortPreferences"];
+  } catch {
+    return {};
+  }
 }
 
 export function updateSettings(partial: Partial<AppSettings>) {
@@ -532,14 +561,32 @@ export function updateSettings(partial: Partial<AppSettings>) {
   const next = { ...current, ...partial };
   for (const [key, value] of Object.entries(next)) {
     db.insert(schema.settings)
-      .values({ key, value: String(value) })
+      .values({
+        key,
+        value:
+          typeof value === "object" ? JSON.stringify(value) : String(value),
+      })
       .onConflictDoUpdate({
         target: schema.settings.key,
-        set: { value: String(value) },
+        set: {
+          value:
+            typeof value === "object" ? JSON.stringify(value) : String(value),
+        },
       })
       .run();
   }
   return next;
+}
+
+export function updateItemSortPreference(
+  seriesId: string,
+  preference: AppSettings["itemSortPreferences"][string] | null
+) {
+  const current = getSettings();
+  const next = { ...current.itemSortPreferences };
+  if (preference) next[seriesId] = preference;
+  else delete next[seriesId];
+  return updateSettings({ itemSortPreferences: next });
 }
 
 export function getLibraryStats() {

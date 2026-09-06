@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
   const mediaType = (sp.get("type") as MediaType) || undefined;
   const search = sp.get("q") || undefined;
-  const sortBy = (sp.get("sort") as SortBy) || "updated";
+  const sortBy = (sp.get("sort") as SortBy) || "title";
   const tagIds = sp.get("tags")?.split(",").filter(Boolean);
   const tagMatch = (sp.get("tagMatch") as TagMatchMode) || "any";
   const requestedLimit = Number(sp.get("limit") || 72);

@@ -1,15 +1,25 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Search, Filter, Star, ArrowUpDown, Play, RotateCcw, Trash2 } from "lucide-react";
+import {
+  Search,
+  Filter,
+  Star,
+  ArrowUpDown,
+  Play,
+  RotateCcw,
+  Trash2,
+  Lock,
+  LockOpen,
+} from "lucide-react";
 import { useLibrary } from "@/lib/store";
 import type { SortBy } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const SORTS: { value: SortBy; label: string }[] = [
+  { value: "title", label: "名称" },
   { value: "updated", label: "最近更新" },
   { value: "added", label: "最近添加" },
-  { value: "title", label: "标题" },
   { value: "author", label: "作者" },
   { value: "rating", label: "评分" },
   { value: "capture", label: "拍摄日期" },
@@ -21,6 +31,8 @@ export function Toolbar() {
     setSearch,
     sortBy,
     setSortBy,
+    sortLocked,
+    setSortLocked,
     tags,
     selectedTagIds,
     setSelectedTagIds,
@@ -169,12 +181,12 @@ export function Toolbar() {
           </button>
         )}
 
-        <div className="flex items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-3 py-2">
+        <div className="flex h-10 items-center rounded-xl border border-[var(--line)] bg-white pl-3">
           <ArrowUpDown className="h-4 w-4 text-[var(--ink-faint)]" />
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as SortBy)}
-            className="bg-transparent text-sm outline-none"
+            className="h-full bg-transparent px-2 text-sm outline-none"
           >
             {SORTS.map((s) => (
               <option key={s.value} value={s.value}>
@@ -182,6 +194,21 @@ export function Toolbar() {
               </option>
             ))}
           </select>
+          <button
+            type="button"
+            onClick={() => setSortLocked(!sortLocked)}
+            className={cn(
+              "flex h-full w-9 items-center justify-center border-l border-[var(--line)] transition",
+              sortLocked
+                ? "text-[var(--accent)]"
+                : "text-[var(--ink-faint)] hover:text-[var(--ink)]"
+            )}
+            title={sortLocked ? "已锁定排序，点击取消" : "锁定当前排序"}
+            aria-label={sortLocked ? "取消锁定资源库排序" : "锁定资源库排序"}
+            aria-pressed={sortLocked}
+          >
+            {sortLocked ? <Lock className="h-3.5 w-3.5" /> : <LockOpen className="h-3.5 w-3.5" />}
+          </button>
         </div>
 
         <button

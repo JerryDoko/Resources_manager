@@ -16,9 +16,16 @@ import {
   CalendarPlus,
   CalendarClock,
   ChevronDown,
+  Lock,
+  LockOpen,
 } from "lucide-react";
 import { useLibrary } from "@/lib/store";
-import { MEDIA_TYPE_LABELS, type MediaType } from "@/lib/types";
+import {
+  MEDIA_TYPE_LABELS,
+  type ItemSortKey,
+  type MediaType,
+  type SortDirection,
+} from "@/lib/types";
 import { cn, formatBytes, formatDate, formatDuration } from "@/lib/utils";
 import { MangaReader } from "@/components/viewers/MangaReader";
 import { VideoPlayer } from "@/components/viewers/VideoPlayer";
@@ -103,9 +110,6 @@ interface SeriesDetailViewProps {
 }
 
 type DragBox = { x0: number; y0: number; x1: number; y1: number };
-type ItemSortKey = "name" | "created" | "updated";
-type SortDirection = "asc" | "desc";
-
 const itemSortOptions: Array<{
   key: ItemSortKey;
   label: string;
@@ -163,7 +167,13 @@ export function SeriesDetailView({
   onBack,
   onRemoved,
 }: SeriesDetailViewProps) {
-  const { tags, refresh, refreshTags, setMusicQueue, updateTabMeta } = useLibrary();
+  const {
+    tags,
+    refresh,
+    refreshTags,
+    setMusicQueue,
+    updateTabMeta,
+  } = useLibrary();
   const [data, setData] = useState<SeriesDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [viewerItemId, setViewerItemId] = useState<string | null>(null);
@@ -172,7 +182,9 @@ export function SeriesDetailView({
   const [itemRatingFilter, setItemRatingFilter] = useState(0);
   const [itemSortKey, setItemSortKey] = useState<ItemSortKey>("name");
   const [itemSortDirection, setItemSortDirection] = useState<SortDirection>("asc");
+  const [itemSortLocked, setItemSortLocked] = useState(false);
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
+  const [autoImportMessage, setAutoImportMessage] = useState<string | null>(null);
   const [focusedItemId, setFocusedItemId] = useState<string | null>(null);
   const [itemThumbFailed, setItemThumbFailed] = useState(false);
   const [drag, setDrag] = useState<DragBox | null>(null);
@@ -202,15 +214,30 @@ export function SeriesDetailView({
         title: json.title,
         mediaType: json.mediaType,
       });
+      if (["manga", "webtoon", "photo"].includes(json.mediaType)) {
+        const syncRes = await fetch(`/api/library/${seriesId}`, {
+          method: "POST",
+          signal: AbortSignal.timeout(30000),
+        });
+        const sync = await syncRes.json();
+        if (syncRes.ok && sync.added > 0) {
+          setAutoImportMessage(`已自动导入 ${sync.added} 张新图片`);
+          const refreshed = await fetch(`/api/library/${seriesId}`, {
+            signal: AbortSignal.timeout(10000),
+          });
+          if (refreshed.ok) setData((await refreshed.json()) as SeriesDetail);
+          refresh();
+        }
+      }
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    load();
+    if (isActive) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seriesId]);
+  }, [isActive, seriesId]);
 
   // 切走标签时关闭播放器，避免与其它页叠层
   useEffect(() => {
@@ -220,8 +247,22 @@ export function SeriesDetailView({
   useEffect(() => {
     setSelectedItemIds(new Set());
     setItemRatingFilter(0);
+    setItemSortKey("name");
+    setItemSortDirection("asc");
+    setItemSortLocked(false);
+    setAutoImportMessage(null);
     setSortMenuOpen(false);
     setFocusedItemId(null);
+    fetch("/api/settings", { signal: AbortSignal.timeout(10000) })
+      .then((response) => response.json())
+      .then((settings) => {
+        const preference = settings.itemSortPreferences?.[seriesId];
+        if (!preference) return;
+        setItemSortKey(preference.key);
+        setItemSortDirection(preference.direction);
+        setItemSortLocked(true);
+      })
+      .catch(() => {});
   }, [seriesId]);
 
   useEffect(() => {
@@ -364,11 +405,37 @@ export function SeriesDetailView({
   };
 
   const setItemSort = (key: ItemSortKey) => {
-    setItemSortDirection((currentDirection) =>
-      itemSortKey === key ? (currentDirection === "asc" ? "desc" : "asc") : "asc"
-    );
+    const direction =
+      itemSortKey === key
+        ? itemSortDirection === "asc"
+          ? "desc"
+          : "asc"
+        : "asc";
     setItemSortKey(key);
+    setItemSortDirection(direction);
+    if (itemSortLocked) saveItemSortPreference(true, key, direction);
     setSortMenuOpen(false);
+  };
+
+  const saveItemSortPreference = (
+    locked: boolean,
+    key = itemSortKey,
+    direction = itemSortDirection
+  ) => {
+    fetch("/api/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        itemSortPreference: { seriesId, locked, key, direction },
+      }),
+      signal: AbortSignal.timeout(10000),
+    }).catch(() => {});
+  };
+
+  const toggleItemSortLock = () => {
+    const locked = !itemSortLocked;
+    setItemSortLocked(locked);
+    saveItemSortPreference(locked);
   };
 
   const toggleItemSelect = (itemId: string) => {
@@ -908,6 +975,11 @@ export function SeriesDetailView({
                       已选 {selectedItemIds.size}
                     </span>
                   )}
+                  {autoImportMessage && (
+                    <span className="text-xs text-[var(--accent)]">
+                      {autoImportMessage}
+                    </span>
+                  )}
                   <div ref={sortMenuRef} className="relative">
                     <button
                       type="button"
@@ -966,6 +1038,25 @@ export function SeriesDetailView({
                       </div>
                     )}
                   </div>
+                  <button
+                    type="button"
+                    onClick={toggleItemSortLock}
+                    className={cn(
+                      "flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--line)] bg-white transition",
+                      itemSortLocked
+                        ? "text-[var(--accent)]"
+                        : "text-[var(--ink-faint)] hover:text-[var(--ink)]"
+                    )}
+                    title={itemSortLocked ? "已锁定排序，点击取消" : "锁定当前排序"}
+                    aria-label={itemSortLocked ? "取消锁定文件夹排序" : "锁定文件夹排序"}
+                    aria-pressed={itemSortLocked}
+                  >
+                    {itemSortLocked ? (
+                      <Lock className="h-3.5 w-3.5" />
+                    ) : (
+                      <LockOpen className="h-3.5 w-3.5" />
+                    )}
+                  </button>
                   <label className="flex items-center gap-1.5 text-xs text-[var(--ink-muted)]">
                     <Filter className="h-3.5 w-3.5" />
                     <select

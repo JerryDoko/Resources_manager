@@ -1,7 +1,12 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import type { MediaType, SortBy, TagMatchMode, LibraryViewMode } from "@/lib/types";
+import type {
+  LibraryViewMode,
+  MediaType,
+  SortBy,
+  TagMatchMode,
+} from "@/lib/types";
 
 export const LIBRARY_TAB_ID = "library";
 
@@ -51,6 +56,8 @@ interface LibraryContextValue {
   setSearch: (s: string) => void;
   sortBy: SortBy;
   setSortBy: (s: SortBy) => void;
+  sortLocked: boolean;
+  setSortLocked: (locked: boolean) => void;
   selectedTagIds: string[];
   setSelectedTagIds: (ids: string[]) => void;
   tagMatch: TagMatchMode;
@@ -106,7 +113,8 @@ const LIBRARY_PAGE_SIZE = 72;
 export function LibraryProvider({ children }: { children: React.ReactNode }) {
   const [mediaType, setMediaType] = useState<MediaType>("manga");
   const [search, setSearch] = useState("");
-  const [sortBy, setSortBy] = useState<SortBy>("updated");
+  const [sortBy, setSortByState] = useState<SortBy>("title");
+  const [sortLocked, setSortLockedState] = useState(false);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [tagMatch, setTagMatch] = useState<TagMatchMode>("any");
   const [series, setSeries] = useState<SeriesCard[]>([]);
@@ -134,6 +142,31 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
   const refreshSeq = useRef(0);
   const loadingMoreRef = useRef(false);
 
+  const saveSortSettings = useCallback((settings: Record<string, unknown>) => {
+    fetch("/api/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(settings),
+      signal: AbortSignal.timeout(10000),
+    }).catch(() => {});
+  }, []);
+
+  const setSortBy = useCallback(
+    (next: SortBy) => {
+      setSortByState(next);
+      if (sortLocked) saveSortSettings({ librarySortBy: next });
+    },
+    [saveSortSettings, sortLocked]
+  );
+
+  const setSortLocked = useCallback(
+    (locked: boolean) => {
+      setSortLockedState(locked);
+      saveSortSettings({ librarySortLocked: locked, librarySortBy: sortBy });
+    },
+    [saveSortSettings, sortBy]
+  );
+
   const setUiScale = useCallback((n: number) => {
     const v = Math.min(1.25, Math.max(0.85, n));
     setUiScaleState(v);
@@ -155,6 +188,9 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
         const scale = Number(data.uiScale) || 1;
         setUiScaleState(scale);
         document.documentElement.style.setProperty("--ui-scale", String(scale));
+        const libraryLocked = !!data.librarySortLocked;
+        setSortLockedState(libraryLocked);
+        setSortByState(libraryLocked ? data.librarySortBy || "title" : "title");
       })
       .catch(() => {});
   }, []);
@@ -349,6 +385,8 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
       setSearch,
       sortBy,
       setSortBy,
+      sortLocked,
+      setSortLocked,
       selectedTagIds,
       setSelectedTagIds,
       tagMatch,
@@ -392,6 +430,9 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
       mediaType,
       search,
       sortBy,
+      setSortBy,
+      sortLocked,
+      setSortLocked,
       selectedTagIds,
       tagMatch,
       series,

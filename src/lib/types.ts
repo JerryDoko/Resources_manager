@@ -7,6 +7,12 @@ export type MediaType =
   | "photo";
 
 export type SortBy = "title" | "rating" | "author" | "updated" | "added" | "capture";
+export type ItemSortKey = "name" | "created" | "updated";
+export type SortDirection = "asc" | "desc";
+export interface FolderSortPreference {
+  key: ItemSortKey;
+  direction: SortDirection;
+}
 
 export type TagMatchMode = "all" | "any";
 
@@ -15,6 +21,7 @@ export interface LibraryFolder {
   path: string;
   mediaType: MediaType;
   enabled: boolean;
+  recursive: boolean;
   createdAt: number;
 }
 
@@ -72,6 +79,9 @@ export interface AppSettings {
   videoShortcuts: string;
   /** 界面缩放 0.85 | 1 | 1.1 | 1.25 */
   uiScale: number;
+  librarySortLocked: boolean;
+  librarySortBy: SortBy;
+  itemSortPreferences: Record<string, FolderSortPreference>;
 }
 
 export type LibraryViewMode = "import" | "series";

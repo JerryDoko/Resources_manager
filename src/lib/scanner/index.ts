@@ -7,7 +7,7 @@ import { MEDIA_EXTENSIONS, type MediaType, type ScanResult } from "@/lib/types";
 import { inferSeriesTitle, naturalCompare, parseMediaName } from "@/lib/parsers/name";
 import { ensureItemThumbnail, ensureSeriesThumbnail } from "@/lib/thumbnails";
 
-const IMAGE_EXTS = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".heic", ".bmp", ".tiff"]);
+const IMAGE_EXTS = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".heic", ".heif", ".bmp", ".tiff"]);
 const ARCHIVE_EXTS = new Set([".zip", ".cbz", ".rar", ".cbr"]);
 
 function getExt(file: string): string {
@@ -368,6 +368,85 @@ export async function scanFolder(
     );
   }
 
+  return result;
+}
+
+export async function syncSeriesImages(seriesId: string): Promise<ScanResult> {
+  const result: ScanResult = {
+    scanned: 0,
+    added: 0,
+    updated: 0,
+    seriesCreated: 0,
+    errors: [],
+  };
+  const db = getDb();
+  const series = db.select().from(schema.series).where(eq(schema.series.id, seriesId)).get();
+  if (!series || !["manga", "webtoon", "photo"].includes(series.mediaType)) {
+    return result;
+  }
+
+  const items = db
+    .select({ path: schema.mediaItems.path, sortOrder: schema.mediaItems.sortOrder })
+    .from(schema.mediaItems)
+    .where(eq(schema.mediaItems.seriesId, seriesId))
+    .all();
+  if (items.length === 0) return result;
+  if (!IMAGE_EXTS.has(getExt(items[0].path))) return result;
+
+  let scanRoot = path.dirname(items[0].path);
+  if (series.mediaType !== "photo") {
+    while (isEpisodeOrVolumeFolder(path.basename(scanRoot))) {
+      const parent = path.dirname(scanRoot);
+      if (parent === scanRoot) break;
+      scanRoot = parent;
+    }
+  }
+  if (!fs.existsSync(scanRoot)) return result;
+
+  const files = walkDir(scanRoot, series.mediaType === "photo" ? 0 : 32)
+    .filter((file) => IMAGE_EXTS.has(getExt(file)))
+    .sort(naturalCompare);
+  result.scanned = files.length;
+
+  const knownPaths = new Set(
+    db.select({ path: schema.mediaItems.path }).from(schema.mediaItems).all().map((item) => item.path)
+  );
+  const newFiles = files.filter((file) => !knownPaths.has(file));
+  if (newFiles.length === 0) return result;
+
+  const now = Date.now();
+  let order = items.reduce((max, item) => Math.max(max, item.sortOrder), -1) + 1;
+  for (const filePath of newFiles) {
+    try {
+      const stat = fs.statSync(filePath);
+      const relativeDir = path.relative(scanRoot, path.dirname(filePath));
+      const baseTitle = path.basename(filePath, path.extname(filePath));
+      db.insert(schema.mediaItems)
+        .values({
+          id: uuid(),
+          seriesId,
+          title: relativeDir ? `${relativeDir} · ${baseTitle}` : baseTitle,
+          path: filePath,
+          mediaType: series.mediaType,
+          sortOrder: order++,
+          fileSize: stat.size,
+          captureDate:
+            series.mediaType === "photo"
+              ? new Date(stat.mtimeMs).toISOString().slice(0, 10)
+              : null,
+          thumbnailPath: null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+      result.added++;
+    } catch (error) {
+      result.errors.push(
+        `${filePath}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+  if (result.added > 0) await refreshSeriesStats(db, seriesId, now);
   return result;
 }
 

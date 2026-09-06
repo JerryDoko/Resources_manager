@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSeriesById, updateSeries, deleteSeries, setSeriesTags } from "@/lib/library";
+import { syncSeriesImages } from "@/lib/scanner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,6 +31,11 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
   }
 
   return NextResponse.json(getSeriesById(id));
+}
+
+export async function POST(_req: NextRequest, ctx: Ctx) {
+  const { id } = await ctx.params;
+  return NextResponse.json(await syncSeriesImages(id));
 }
 
 export async function DELETE(_req: NextRequest, ctx: Ctx) {
