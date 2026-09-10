@@ -78,8 +78,6 @@ interface LibraryContextValue {
   refreshTags: () => Promise<void>;
   showSettings: boolean;
   setShowSettings: (v: boolean) => void;
-  musicQueue: { id: string; title: string; artist?: string } | null;
-  setMusicQueue: (t: { id: string; title: string; artist?: string } | null) => void;
   tabs: WorkspaceTab[];
   activeTabId: string;
   activateTab: (id: string) => void;
@@ -126,11 +124,6 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
   const [hasMore, setHasMore] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showSettings, setShowSettings] = useState(false);
-  const [musicQueue, setMusicQueue] = useState<{
-    id: string;
-    title: string;
-    artist?: string;
-  } | null>(null);
   const [tabs, setTabs] = useState<WorkspaceTab[]>([
     { id: LIBRARY_TAB_ID, kind: "library", title: "资源库" },
   ]);
@@ -407,8 +400,6 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
       refreshTags,
       showSettings,
       setShowSettings,
-      musicQueue,
-      setMusicQueue,
       tabs,
       activeTabId,
       activateTab,
@@ -449,7 +440,6 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
       refresh,
       refreshTags,
       showSettings,
-      musicQueue,
       tabs,
       activeTabId,
       activateTab,

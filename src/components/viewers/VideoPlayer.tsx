@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  AlertTriangle,
   X,
   Pause,
   Play,
@@ -11,7 +12,12 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
+  GripVertical,
   ImagePlus,
+  ListVideo,
+  Repeat,
+  Repeat1,
+  Shuffle,
 } from "lucide-react";
 import {
   DEFAULT_VIDEO_SHORTCUTS,
@@ -24,6 +30,7 @@ import {
 import { formatDuration } from "@/lib/utils";
 import { FullscreenPortal } from "./FullscreenPortal";
 import { useAppChrome } from "@/lib/useAppChrome";
+import type { PlaybackMode } from "@/lib/types";
 
 export interface PlaylistItem {
   id: string;
@@ -36,6 +43,7 @@ interface Props {
   title: string;
   onClose: () => void;
   playlist?: PlaylistItem[];
+  playlistKey?: string;
   onChangeItem?: (id: string) => void;
   /** 0–1，打开时从该进度续播 */
   initialProgress?: number;
@@ -44,12 +52,27 @@ interface Props {
 }
 
 type HoldMode = "none" | "speed" | "rewind";
+const PLAYBACK_MODES: PlaybackMode[] = ["sequential", "repeat-all", "repeat-one", "shuffle"];
+const PLAYBACK_LABELS: Record<PlaybackMode, string> = {
+  sequential: "顺序播放",
+  "repeat-all": "列表循环",
+  "repeat-one": "单曲循环",
+  shuffle: "随机播放",
+};
+
+function PlaybackModeIcon({ mode, className = "h-4 w-4" }: { mode: PlaybackMode; className?: string }) {
+  if (mode === "repeat-all") return <Repeat className={className} />;
+  if (mode === "repeat-one") return <Repeat1 className={className} />;
+  if (mode === "shuffle") return <Shuffle className={className} />;
+  return <ListVideo className={className} />;
+}
 
 export function VideoPlayer({
   itemId,
   title,
   onClose,
   playlist = [],
+  playlistKey = "default",
   onChangeItem,
   initialProgress = 0,
   onThumbnailUpdated,
@@ -70,6 +93,10 @@ export function VideoPlayer({
   const [capturePreview, setCapturePreview] = useState<string | null>(null);
   const [captureBusy, setCaptureBusy] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(false);
+  const [decodeErrorAt, setDecodeErrorAt] = useState<number | null>(null);
+  const [orderedPlaylist, setOrderedPlaylist] = useState<PlaylistItem[]>(playlist);
+  const [playbackMode, setPlaybackMode] = useState<PlaybackMode>("sequential");
+  const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
   const scrubbing = useRef(false);
   const lastProgressSaveAt = useRef(0);
   const lastProgressValue = useRef(-1);
@@ -83,9 +110,36 @@ export function VideoPlayer({
   const pressed = useRef(new Set<string>());
   const { fullscreen, viewerHeaderClass } = useAppChrome();
 
-  const idx = playlist.findIndex((p) => p.id === itemId);
+  const idx = orderedPlaylist.findIndex((p) => p.id === itemId);
   const hasPrev = idx > 0;
-  const hasNext = idx >= 0 && idx < playlist.length - 1;
+  const hasNext = idx >= 0 && idx < orderedPlaylist.length - 1;
+
+  const playlistStorageKey = `resources-manager:video-playlist:${playlistKey}`;
+  const playbackModeKey = "resources-manager:video-playback-mode";
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem(playbackModeKey) as PlaybackMode | null;
+    if (["sequential", "repeat-all", "repeat-one", "shuffle"].includes(saved || "")) {
+      setPlaybackMode(saved!);
+    }
+  }, [playbackModeKey]);
+
+  useEffect(() => {
+    let savedIds: string[] = [];
+    try {
+      savedIds = JSON.parse(window.localStorage.getItem(playlistStorageKey) || "[]");
+    } catch {
+      /* use the folder order */
+    }
+    const byId = new Map(playlist.map((item) => [item.id, item]));
+    const restored = savedIds.flatMap((id) => {
+      const item = byId.get(id);
+      if (!item) return [];
+      byId.delete(id);
+      return [item];
+    });
+    setOrderedPlaylist([...restored, ...byId.values()]);
+  }, [playlist, playlistStorageKey]);
 
   useEffect(() => {
     fetch("/api/settings", { signal: AbortSignal.timeout(10000) })
@@ -151,16 +205,70 @@ export function VideoPlayer({
   const goPrev = useCallback(() => {
     if (!hasPrev || !onChangeItem) return;
     saveProgress(true);
-    onChangeItem(playlist[idx - 1].id);
-    flash(`上一个：${playlist[idx - 1].title}`);
-  }, [hasPrev, onChangeItem, saveProgress, playlist, idx, flash]);
+    onChangeItem(orderedPlaylist[idx - 1].id);
+    flash(`上一个：${orderedPlaylist[idx - 1].title}`);
+  }, [hasPrev, onChangeItem, saveProgress, orderedPlaylist, idx, flash]);
 
   const goNext = useCallback(() => {
     if (!hasNext || !onChangeItem) return;
     saveProgress(true);
-    onChangeItem(playlist[idx + 1].id);
-    flash(`下一个：${playlist[idx + 1].title}`);
-  }, [hasNext, onChangeItem, saveProgress, playlist, idx, flash]);
+    onChangeItem(orderedPlaylist[idx + 1].id);
+    flash(`下一个：${orderedPlaylist[idx + 1].title}`);
+  }, [hasNext, onChangeItem, saveProgress, orderedPlaylist, idx, flash]);
+
+  const selectPlaylistItem = useCallback((nextId: string) => {
+    if (nextId === itemId || !onChangeItem) return;
+    saveProgress(true);
+    onChangeItem(nextId);
+  }, [itemId, onChangeItem, saveProgress]);
+
+  const reorderPlaylist = useCallback((sourceId: string, targetId: string) => {
+    if (sourceId === targetId) return;
+    setOrderedPlaylist((current) => {
+      const sourceIndex = current.findIndex((item) => item.id === sourceId);
+      const targetIndex = current.findIndex((item) => item.id === targetId);
+      if (sourceIndex < 0 || targetIndex < 0) return current;
+      const next = [...current];
+      const [moved] = next.splice(sourceIndex, 1);
+      next.splice(targetIndex, 0, moved);
+      window.localStorage.setItem(playlistStorageKey, JSON.stringify(next.map((item) => item.id)));
+      return next;
+    });
+  }, [playlistStorageKey]);
+
+  const setMode = useCallback((mode: PlaybackMode) => {
+    setPlaybackMode(mode);
+    window.localStorage.setItem(playbackModeKey, mode);
+    flash(PLAYBACK_LABELS[mode]);
+  }, [flash, playbackModeKey]);
+
+  const handleEnded = useCallback(() => {
+    saveProgress(true);
+    const video = videoRef.current;
+    if (playbackMode === "repeat-one" && video) {
+      video.currentTime = 0;
+      video.play().catch(() => {});
+      return;
+    }
+    if (playbackMode === "shuffle" && orderedPlaylist.length > 1) {
+      let nextIndex = idx;
+      while (nextIndex === idx) nextIndex = Math.floor(Math.random() * orderedPlaylist.length);
+      selectPlaylistItem(orderedPlaylist[nextIndex].id);
+      return;
+    }
+    if (hasNext) {
+      goNext();
+      return;
+    }
+    if (playbackMode === "repeat-all" && orderedPlaylist.length > 0) {
+      if (orderedPlaylist[0].id === itemId && video) {
+        video.currentTime = 0;
+        video.play().catch(() => {});
+      } else {
+        selectPlaylistItem(orderedPlaylist[0].id);
+      }
+    }
+  }, [goNext, hasNext, idx, itemId, orderedPlaylist, playbackMode, saveProgress, selectPlaylistItem]);
 
   const captureFrame = useCallback(() => {
     const v = videoRef.current;
@@ -273,7 +381,7 @@ export function VideoPlayer({
 
       if (matchBinding(key, sc.playPause)) {
         e.preventDefault();
-        if (v.paused) v.play();
+        if (v.paused) v.play().catch(() => {});
         else v.pause();
         return;
       }
@@ -330,7 +438,7 @@ export function VideoPlayer({
           holdMode.current = "speed";
           normalRate.current = v.playbackRate || 1;
           v.playbackRate = sc.longPressSpeed;
-          if (v.paused) v.play();
+          if (v.paused) v.play().catch(() => {});
           setHoldHint(`${sc.longPressSpeed}×`);
         }, sc.longPressMs);
         return;
@@ -450,6 +558,7 @@ export function VideoPlayer({
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
+    setDecodeErrorAt(null);
     setCurrentTime(0);
     setDuration(0);
     setBuffered(0);
@@ -495,7 +604,7 @@ export function VideoPlayer({
       syncBuffered();
     };
     const onProgress = () => syncBuffered();
-    const onEnded = () => saveProgress(true);
+    const onEnded = () => handleEnded();
 
     v.addEventListener("timeupdate", onTime);
     v.addEventListener("loadedmetadata", onMeta);
@@ -509,7 +618,7 @@ export function VideoPlayer({
       v.removeEventListener("progress", onProgress);
       v.removeEventListener("ended", onEnded);
     };
-  }, [itemId, saveProgress]);
+  }, [handleEnded, itemId, saveProgress]);
 
   useEffect(() => {
     const flush = () => saveProgress(true);
@@ -604,10 +713,16 @@ export function VideoPlayer({
             setPlaying(false);
             saveProgress(true);
           }}
+          onError={() => {
+            const video = videoRef.current;
+            if (!video?.error) return;
+            setPlaying(false);
+            setDecodeErrorAt(video.currentTime || currentTime);
+          }}
           onClick={() => {
             const v = videoRef.current;
             if (!v) return;
-            if (v.paused) v.play();
+            if (v.paused) v.play().catch(() => {});
             else v.pause();
           }}
         >
@@ -621,6 +736,39 @@ export function VideoPlayer({
             />
           )}
         </video>
+
+        {decodeErrorAt !== null && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/65 p-6 backdrop-blur-sm">
+            <div className="max-w-md text-center text-white">
+              <AlertTriangle className="mx-auto h-9 w-9 text-amber-400" />
+              <p className="mt-3 text-base font-medium">视频文件无法继续解码</p>
+              <p className="mt-1 text-sm leading-6 text-white/60">
+                文件在 {formatDuration(decodeErrorAt)} 附近包含损坏或不兼容的视频数据，建议重新下载该文件。
+              </p>
+              <div className="mt-5 flex items-center justify-center gap-2">
+                {hasNext && (
+                  <button
+                    type="button"
+                    onClick={goNext}
+                    className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white hover:brightness-110"
+                  >
+                    播放下一项
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    saveProgress(true);
+                    onClose();
+                  }}
+                  className="rounded-lg bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/15"
+                >
+                  关闭播放器
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {!showSubs && (
           <span className="absolute left-4 top-4 rounded bg-black/50 px-2 py-1 text-xs text-white/70">
@@ -730,7 +878,7 @@ export function VideoPlayer({
             onClick={() => {
               const v = videoRef.current;
               if (!v) return;
-              if (v.paused) v.play();
+              if (v.paused) v.play().catch(() => {});
               else v.pause();
             }}
             className="rounded-full bg-[var(--accent)] p-4 hover:brightness-110"
@@ -750,18 +898,104 @@ export function VideoPlayer({
           >
             <Camera className="h-5 w-5" />
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              const next = PLAYBACK_MODES[(PLAYBACK_MODES.indexOf(playbackMode) + 1) % PLAYBACK_MODES.length];
+              setMode(next);
+            }}
+            className="rounded-full bg-white/10 p-3 hover:bg-white/20"
+            title={PLAYBACK_LABELS[playbackMode]}
+            aria-label={PLAYBACK_LABELS[playbackMode]}
+          >
+            <PlaybackModeIcon mode={playbackMode} className="h-5 w-5" />
+          </button>
           {(ab.a != null || ab.b != null) && (
             <span className="ml-2 text-xs text-white/60">
               A-B: {ab.a?.toFixed(1) ?? "—"} → {ab.b?.toFixed(1) ?? "—"}
             </span>
           )}
-          {playlist.length > 0 && (
+          {orderedPlaylist.length > 0 && (
             <span className="ml-2 text-xs text-white/40">
-              {Math.max(idx + 1, 1)} / {playlist.length}
+              {Math.max(idx + 1, 1)} / {orderedPlaylist.length}
             </span>
           )}
         </div>
       </div>
+
+      {orderedPlaylist.length > 0 && (
+        <aside className="group/playlist absolute bottom-24 right-0 top-20 z-30 flex w-80 translate-x-[calc(100%-14px)] flex-col border-l-2 border-[var(--accent)] bg-[#111718]/95 text-white shadow-2xl backdrop-blur-xl transition-transform duration-200 hover:translate-x-0 focus-within:translate-x-0">
+          <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium">播放列表</p>
+              <p className="text-xs text-white/45">{orderedPlaylist.length} 个视频</p>
+            </div>
+            <div className="flex items-center rounded-lg bg-white/5 p-1">
+              {PLAYBACK_MODES.map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setMode(mode)}
+                  className={`rounded-md p-1.5 transition ${
+                    playbackMode === mode
+                      ? "bg-[var(--accent)] text-white"
+                      : "text-white/50 hover:bg-white/10 hover:text-white"
+                  }`}
+                  title={PLAYBACK_LABELS[mode]}
+                  aria-label={PLAYBACK_LABELS[mode]}
+                >
+                  <PlaybackModeIcon mode={mode} />
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto py-1 scrollbar-thin">
+            {orderedPlaylist.map((item, index) => {
+              const active = item.id === itemId;
+              return (
+                <div
+                  key={item.id}
+                  draggable
+                  onDragStart={() => setDraggedItemId(item.id)}
+                  onDragEnd={() => setDraggedItemId(null)}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    if (draggedItemId) reorderPlaylist(draggedItemId, item.id);
+                    setDraggedItemId(null);
+                  }}
+                  className={`flex h-14 items-center gap-2 border-b border-white/5 px-2 transition ${
+                    active ? "bg-white/12" : "hover:bg-white/7"
+                  } ${draggedItemId === item.id ? "opacity-45" : ""}`}
+                >
+                  <GripVertical className="h-4 w-4 shrink-0 cursor-grab text-white/30 active:cursor-grabbing" />
+                  <button
+                    type="button"
+                    onClick={() => selectPlaylistItem(item.id)}
+                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                    title={item.title}
+                  >
+                    <span className={`flex h-8 w-10 shrink-0 items-center justify-center rounded bg-black/35 text-xs tabular-nums ${active ? "text-[var(--accent-hot)]" : "text-white/45"}`}>
+                      {index + 1}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className={`block truncate text-xs ${active ? "font-medium text-white" : "text-white/70"}`}>
+                        {item.title}
+                      </span>
+                      <span className="mt-0.5 block text-[10px] text-white/35">
+                        {item.progress && item.progress > 0.01
+                          ? `已播放 ${Math.round(item.progress * 100)}%`
+                          : "未播放"}
+                      </span>
+                    </span>
+                  </button>
+                  {active && <Play className="h-3.5 w-3.5 shrink-0 fill-current text-[var(--accent-hot)]" />}
+                </div>
+              );
+            })}
+          </div>
+        </aside>
+      )}
 
       {capturePreview && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/70 p-6">

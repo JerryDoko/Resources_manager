@@ -190,18 +190,6 @@ async function fromEpub(filePath: string, dest: string): Promise<string | null> 
   }
 }
 
-async function fromMusicCover(filePath: string, dest: string): Promise<string | null> {
-  try {
-    const { parseFile } = await import("music-metadata");
-    const meta = await parseFile(filePath, { duration: false });
-    const pic = meta.common.picture?.[0];
-    if (!pic?.data) return null;
-    return writeThumb(Buffer.from(pic.data), dest);
-  } catch {
-    return null;
-  }
-}
-
 /** macOS Quick Look 抽帧；失败再试系统 ffmpeg */
 async function fromVideoFile(filePath: string, dest: string): Promise<string | null> {
   if (!fs.existsSync(filePath)) return null;
@@ -261,9 +249,6 @@ export async function generateThumbFromFile(
   }
   if (ext === ".epub") {
     return fromEpub(sourcePath, destPath);
-  }
-  if ([".mp3", ".flac", ".m4a", ".aac", ".ogg", ".wav", ".wma", ".opus"].includes(ext)) {
-    return fromMusicCover(sourcePath, destPath);
   }
   if (VIDEO_EXTS.has(ext)) {
     return fromVideoFile(sourcePath, destPath);

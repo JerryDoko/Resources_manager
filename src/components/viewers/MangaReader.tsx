@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { X, ChevronLeft, ChevronRight, Play, Pause, FolderOpen } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, Play, Pause, FolderOpen, MoveHorizontal } from "lucide-react";
 import { FullscreenPortal } from "./FullscreenPortal";
 import { useAppChrome } from "@/lib/useAppChrome";
 
@@ -50,9 +50,14 @@ export function MangaReader({
   const [intervalSec, setIntervalSec] = useState(3);
   const [imgReady, setImgReady] = useState(false);
   const [chromeVisible, setChromeVisible] = useState(true);
+  const [webtoonWidth, setWebtoonWidth] = useState(50);
+  const [continuousIndex, setContinuousIndex] = useState(0);
   const imgRef = useRef<HTMLImageElement>(null);
+  const continuousRefs = useRef(new Map<number, HTMLImageElement>());
+  const continuousScrollRaf = useRef(0);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | 0>(0);
   const progressSaveQueue = useRef<Promise<void>>(Promise.resolve());
+  const lastSavedProgress = useRef("");
   const { viewerHeaderClass } = useAppChrome();
 
   const imagePlaylist = useMemo(
@@ -61,6 +66,11 @@ export function MangaReader({
   );
 
   const playlistIndex = imagePlaylist.findIndex((p) => p.id === itemId);
+
+  useEffect(() => {
+    const saved = Number(window.localStorage.getItem("resources-manager:webtoon-width"));
+    if (Number.isFinite(saved) && saved >= 20 && saved <= 100) setWebtoonWidth(saved);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -76,6 +86,7 @@ export function MangaReader({
           if (!cancelled && data.pages?.length) {
             setArchivePages(data.pages);
             setMode("archive");
+            setContinuousIndex(0);
             return;
           }
         }
@@ -87,6 +98,7 @@ export function MangaReader({
 
       if (imagePlaylist.length > 1 && playlistIndex >= 0) {
         setMode("playlist");
+        setContinuousIndex(Math.max(0, playlistIndex));
         return;
       }
 
@@ -106,8 +118,13 @@ export function MangaReader({
           ? 0
           : 1;
 
+  const continuous =
+    mediaType === "webtoon" && totalPages > 0 && mode !== "loading";
+
   const currentPage =
-    mode === "archive"
+    continuous
+      ? continuousIndex
+      : mode === "archive"
       ? archiveIndex
       : mode === "playlist"
         ? Math.max(0, playlistIndex)
@@ -115,24 +132,53 @@ export function MangaReader({
 
   const currentName =
     mode === "archive"
-      ? archivePages[archiveIndex] || ""
+      ? archivePages[continuous ? continuousIndex : archiveIndex] || ""
       : mode === "playlist"
-        ? imagePlaylist[playlistIndex]?.path ||
-          imagePlaylist[playlistIndex]?.title ||
+        ? imagePlaylist[continuous ? continuousIndex : playlistIndex]?.path ||
+          imagePlaylist[continuous ? continuousIndex : playlistIndex]?.title ||
           ""
         : title;
 
   const animated = isLikelyAnimated(currentName);
   const currentPath =
-    mode === "playlist" ? imagePlaylist[playlistIndex]?.path || itemPath : itemPath;
+    mode === "playlist"
+      ? imagePlaylist[continuous ? continuousIndex : playlistIndex]?.path || itemPath
+      : itemPath;
 
   const imageSrc =
     mode === "archive"
       ? `/api/media/${itemId}?mode=page&i=${archiveIndex}`
       : `/api/media/${itemId}`;
 
+  const continuousSources = useMemo(() => {
+    if (!continuous) return [];
+    if (mode === "archive") {
+      return archivePages.map((name, index) => ({
+        key: `${itemId}:${index}`,
+        src: `/api/media/${itemId}?mode=page&i=${index}`,
+        alt: name,
+      }));
+    }
+    if (mode === "playlist") {
+      return imagePlaylist.map((item) => ({
+        key: item.id,
+        src: `/api/media/${item.id}`,
+        alt: item.title,
+      }));
+    }
+    return [{ key: itemId, src: `/api/media/${itemId}`, alt: title }];
+  }, [archivePages, continuous, imagePlaylist, itemId, mode, title]);
+
   const go = useCallback(
     (delta: number) => {
+      if (continuous) {
+        const next = Math.max(0, Math.min(totalPages - 1, continuousIndex + delta));
+        setContinuousIndex(next);
+        continuousRefs.current
+          .get(next)
+          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
       if (mode === "archive") {
         setArchiveIndex((p) =>
           Math.max(0, Math.min(archivePages.length - 1, p + delta))
@@ -155,6 +201,9 @@ export function MangaReader({
       imagePlaylist,
       playlistIndex,
       slideshow,
+      continuous,
+      continuousIndex,
+      totalPages,
     ]
   );
 
@@ -238,15 +287,21 @@ export function MangaReader({
     return () => window.removeEventListener("keydown", onKey);
   }, [go, closeReader, bumpChrome]);
 
+  const progressIndex = continuous ? continuousIndex : currentPage;
+  const progressItemId =
+    continuous && mode === "playlist"
+      ? imagePlaylist[continuousIndex]?.id || itemId
+      : itemId;
+  const progress =
+    mode === "single" ? 1 : (progressIndex + 1) / Math.max(1, totalPages);
+
   useEffect(() => {
     if (totalPages <= 0) return;
-    const progress =
-      mode === "archive"
-        ? (archiveIndex + 1) / archivePages.length
-        : mode === "playlist"
-          ? (playlistIndex + 1) / imagePlaylist.length
-          : 1;
-    onProgressChange?.(itemId, progress);
+    const progressKey = `${progressItemId}:${progress}`;
+    if (lastSavedProgress.current === progressKey) return;
+    lastSavedProgress.current = progressKey;
+
+    onProgressChange?.(progressItemId, progress);
     progressSaveQueue.current = progressSaveQueue.current
       .catch(() => {})
       .then(async () => {
@@ -255,22 +310,63 @@ export function MangaReader({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             action: "progress",
-            id: itemId,
+            id: progressItemId,
             progress,
           }),
           signal: AbortSignal.timeout(10000),
         });
       });
   }, [
-    archiveIndex,
-    archivePages.length,
-    playlistIndex,
-    imagePlaylist.length,
-    itemId,
-    mode,
     onProgressChange,
+    progress,
+    progressItemId,
     totalPages,
   ]);
+
+  useEffect(() => {
+    if (!continuous) return;
+    const frame = requestAnimationFrame(() => {
+      continuousRefs.current
+        .get(continuousIndex)
+        ?.scrollIntoView({ block: "start", behavior: "auto" });
+    });
+    return () => cancelAnimationFrame(frame);
+    // Only restore the selected image when the continuous document is opened.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [continuous, itemId, mode]);
+
+  useEffect(
+    () => () => {
+      if (continuousScrollRaf.current) {
+        cancelAnimationFrame(continuousScrollRaf.current);
+      }
+    },
+    []
+  );
+
+  const trackContinuousScroll = useCallback(
+    (container: HTMLDivElement) => {
+      if (!continuous) return;
+      if (continuousScrollRaf.current) {
+        cancelAnimationFrame(continuousScrollRaf.current);
+      }
+      continuousScrollRaf.current = requestAnimationFrame(() => {
+        const marker =
+          container.getBoundingClientRect().top + container.clientHeight * 0.35;
+        let nearest = continuousIndex;
+        let distance = Number.POSITIVE_INFINITY;
+        for (const [index, image] of continuousRefs.current) {
+          const nextDistance = Math.abs(image.getBoundingClientRect().top - marker);
+          if (nextDistance < distance) {
+            distance = nextDistance;
+            nearest = index;
+          }
+        }
+        setContinuousIndex(nearest);
+      });
+    },
+    [continuous, continuousIndex]
+  );
 
   const pageText =
     mode === "loading"
@@ -310,6 +406,29 @@ export function MangaReader({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {mediaType === "webtoon" && (
+            <label
+              className="flex items-center gap-2 text-xs text-white/60"
+              title="调整条漫宽度"
+            >
+              <MoveHorizontal className="h-4 w-4" />
+              <input
+                type="range"
+                min={20}
+                max={100}
+                step={5}
+                value={webtoonWidth}
+                onChange={(event) => {
+                  const width = Number(event.target.value);
+                  setWebtoonWidth(width);
+                  window.localStorage.setItem("resources-manager:webtoon-width", String(width));
+                }}
+                className="w-28 accent-[var(--accent)]"
+                aria-label="条漫宽度"
+              />
+              <span className="w-9 text-right tabular-nums">{webtoonWidth}%</span>
+            </label>
+          )}
           {currentPath && (
             <button
               type="button"
@@ -321,7 +440,7 @@ export function MangaReader({
               <FolderOpen className="h-5 w-5" />
             </button>
           )}
-          {(mode === "archive" || mode === "playlist") && totalPages > 1 && (
+          {!continuous && (mode === "archive" || mode === "playlist") && totalPages > 1 && (
             <>
               <label className="flex items-center gap-1 text-xs text-white/50">
                 间隔
@@ -369,6 +488,7 @@ export function MangaReader({
         }`}
         onMouseMove={bumpChrome}
         onClick={bumpChrome}
+        onScroll={(event) => trackContinuousScroll(event.currentTarget)}
       >
         {mode === "loading" && (
           <p className="animate-pulse-soft text-white/50">加载中…</p>
@@ -377,25 +497,45 @@ export function MangaReader({
 
         {mode !== "loading" && !error && (
           <>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              key={imageSrc}
-              ref={imgRef}
-              src={imageSrc}
-              alt={title}
-              decoding="async"
-              className={
-                mediaType === "webtoon"
-                  ? "w-full max-w-3xl object-contain"
-                  : "h-full w-full object-contain"
-              }
-              onLoad={() => setImgReady(true)}
-              onError={() =>
-                setError(
-                  "图片加载失败。请确认文件为 jpg/png/webp/gif，或从系列列表打开对应图片项。"
-                )
-              }
-            />
+            {continuous ? (
+              <div
+                className="mx-auto shrink-0 self-start bg-black"
+                style={{ width: `${webtoonWidth}%` }}
+              >
+                {continuousSources.map((page, index) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    key={page.key}
+                    ref={(element) => {
+                      if (element) continuousRefs.current.set(index, element);
+                      else continuousRefs.current.delete(index);
+                    }}
+                    src={page.src}
+                    alt={page.alt}
+                    loading={Math.abs(index - continuousIndex) <= 2 ? "eager" : "lazy"}
+                    decoding="async"
+                    className="block h-auto w-full object-contain"
+                    onLoad={() => setImgReady(true)}
+                  />
+                ))}
+              </div>
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={imageSrc}
+                ref={imgRef}
+                src={imageSrc}
+                alt={title}
+                decoding="async"
+                className="h-full w-full object-contain"
+                onLoad={() => setImgReady(true)}
+                onError={() =>
+                  setError(
+                    "图片加载失败。请确认文件为 jpg/png/webp/gif，或从系列列表打开对应图片项。"
+                  )
+                }
+              />
+            )}
             {totalPages > 1 && (
               <>
                 <button

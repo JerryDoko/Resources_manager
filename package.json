@@ -1,8 +1,8 @@
 {
   "name": "resources-manager",
-  "version": "1.1.7",
+  "version": "1.1.8",
   "private": true,
-  "description": "本地一体化资源管理器 — 漫画、条漫、小说、视频、音乐与照片，私有、离线、自动整理",
+  "description": "本地一体化资源管理器 — 漫画、条漫、小说、视频与照片，私有、离线、自动整理",
   "author": "JerryDoko",
   "scripts": {
     "dev": "next dev",
@@ -33,7 +33,6 @@
     "jschardet": "^3.1.4",
     "jszip": "^3.10.1",
     "lucide-react": "^1.25.0",
-    "music-metadata": "^11.14.0",
     "next": "15.1.6",
     "pdfjs-dist": "^4.10.38",
     "react": "^19.0.0",

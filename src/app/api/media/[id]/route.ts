@@ -14,15 +14,17 @@ type Ctx = { params: Promise<{ id: string }> };
 
 const MIME: Record<string, string> = {
   ".mp4": "video/mp4",
+  ".m4v": "video/mp4",
   ".mkv": "video/x-matroska",
   ".webm": "video/webm",
   ".mov": "video/quicktime",
   ".avi": "video/x-msvideo",
-  ".mp3": "audio/mpeg",
-  ".flac": "audio/flac",
-  ".m4a": "audio/mp4",
-  ".ogg": "audio/ogg",
-  ".wav": "audio/wav",
+  ".wmv": "video/x-ms-wmv",
+  ".flv": "video/x-flv",
+  ".3gp": "video/3gpp",
+  ".3g2": "video/3gpp2",
+  ".ts": "video/mp2t",
+  ".m2ts": "video/mp2t",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
   ".png": "image/png",
@@ -233,7 +235,7 @@ export async function GET(req: NextRequest, ctx: Ctx) {
   const stat = fs.statSync(item.path);
   const contentType = MIME[ext] || "application/octet-stream";
   const range = req.headers.get("range");
-  const isAv = item.mediaType === "video" || item.mediaType === "music";
+  const isAv = item.mediaType === "video";
   const isPdf = ext === ".pdf";
 
   if (isAv || isPdf) {

@@ -52,7 +52,19 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const body = await req.json();
+  let body: {
+    action?: string;
+    id: string;
+    progress: number;
+    rating: number;
+    seriesId: string;
+    orderedIds: string[];
+  };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "请求内容为空或格式错误" }, { status: 400 });
+  }
 
   if (body.action === "progress") {
     updateItemProgress(body.id, body.progress);

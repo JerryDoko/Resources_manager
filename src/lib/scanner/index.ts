@@ -484,37 +484,9 @@ async function upsertFileAsItem(
   const seriesId = await findOrCreateSeries(db, parsed.title, parsed.author, mediaType, now, result);
   const stat = fs.statSync(filePath);
 
-  let metadata: string | null = null;
-  let duration: number | null = null;
+  const metadata: string | null = null;
+  const duration: number | null = null;
   let captureDate: string | null = null;
-
-  if (mediaType === "music") {
-    try {
-      const { parseFile } = await import("music-metadata");
-      const meta = await parseFile(filePath, { duration: true });
-      duration = meta.format.duration ?? null;
-      const artist = meta.common.artist || parsed.author;
-      const album = meta.common.album || parsed.title;
-      metadata = JSON.stringify({
-        artist,
-        album,
-        title: meta.common.title || path.basename(filePath, path.extname(filePath)),
-        year: meta.common.year,
-      });
-      if (artist || album) {
-        db.update(schema.series)
-          .set({
-            title: album || parsed.title,
-            author: artist || parsed.author,
-            updatedAt: now,
-          })
-          .where(eq(schema.series.id, seriesId))
-          .run();
-      }
-    } catch {
-      /* ignore */
-    }
-  }
 
   if (mediaType === "video" || mediaType === "photo") {
     captureDate = new Date(stat.mtimeMs).toISOString().slice(0, 10);

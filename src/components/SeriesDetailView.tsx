@@ -5,7 +5,6 @@ import {
   ArrowLeft,
   Star,
   BookOpen,
-  Music2,
   Image as ImageIcon,
   Trash2,
   FolderOpen,
@@ -171,7 +170,6 @@ export function SeriesDetailView({
     tags,
     refresh,
     refreshTags,
-    setMusicQueue,
     updateTabMeta,
   } = useLibrary();
   const [data, setData] = useState<SeriesDetail | null>(null);
@@ -336,16 +334,6 @@ export function SeriesDetailView({
 
   const openItem = (item: SeriesDetail["items"][0]) => {
     if (!data) return;
-    if (data.mediaType === "music") {
-      let artist: string | undefined;
-      try {
-        artist = item.metadata ? JSON.parse(item.metadata).artist : undefined;
-      } catch {
-        /* */
-      }
-      setMusicQueue({ id: item.id, title: item.title, artist });
-      return;
-    }
     setViewerItemId(item.id);
   };
 
@@ -361,17 +349,20 @@ export function SeriesDetailView({
   }, [refresh, viewerItemId]);
 
   const updateImageProgress = useCallback((itemId: string, progress: number) => {
-    setData((current) =>
-      current
-        ? {
-            ...current,
-            progress,
-            items: current.items.map((item) =>
-              item.id === itemId ? { ...item, progress } : item
-            ),
-          }
-        : current
-    );
+    setData((current) => {
+      if (!current) return current;
+      const item = current.items.find((entry) => entry.id === itemId);
+      if (current.progress === progress && item?.progress === progress) {
+        return current;
+      }
+      return {
+        ...current,
+        progress,
+        items: current.items.map((entry) =>
+          entry.id === itemId ? { ...entry, progress } : entry
+        ),
+      };
+    });
   }, []);
 
   const revealItemPath = useCallback(async (itemPath: string) => {
@@ -648,6 +639,7 @@ export function SeriesDetailView({
             title: i.title,
             progress: i.progress,
           }))}
+          playlistKey={seriesId}
           onChangeItem={setViewerItemId}
           onClose={() => setViewerItemId(null)}
           onThumbnailUpdated={() => {
@@ -1139,9 +1131,7 @@ export function SeriesDetailView({
                                 }}
                               />
                               <span className="absolute inset-0 z-0 flex items-center justify-center text-[var(--accent)]">
-                                {data.mediaType === "music" ? (
-                              <Music2 className="h-4 w-4" />
-                            ) : data.mediaType === "photo" ? (
+                                {data.mediaType === "photo" ? (
                               <ImageIcon className="h-4 w-4" />
                             ) : (
                               <BookOpen className="h-4 w-4" />

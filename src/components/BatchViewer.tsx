@@ -40,6 +40,7 @@ export function BatchViewer() {
         title: `${i.seriesTitle} · ${i.title}`,
         progress: i.progress,
       }))}
+      playlistKey={`batch:${batchSession.items.length}:${batchSession.items[0]?.id}:${batchSession.items.at(-1)?.id}`}
       onChangeItem={setBatchCurrentId}
       onClose={closeBatchSession}
     />

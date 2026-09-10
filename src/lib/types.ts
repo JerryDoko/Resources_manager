@@ -3,12 +3,12 @@ export type MediaType =
   | "webtoon"
   | "novel"
   | "video"
-  | "music"
   | "photo";
 
 export type SortBy = "title" | "rating" | "author" | "updated" | "added" | "capture";
 export type ItemSortKey = "name" | "created" | "updated";
 export type SortDirection = "asc" | "desc";
+export type PlaybackMode = "sequential" | "repeat-all" | "repeat-one" | "shuffle";
 export interface FolderSortPreference {
   key: ItemSortKey;
   direction: SortDirection;
@@ -99,7 +99,6 @@ export const MEDIA_TYPE_LABELS: Record<MediaType, string> = {
   webtoon: "条漫",
   novel: "小说",
   video: "视频",
-  music: "音乐",
   photo: "照片",
 };
 
@@ -111,6 +110,5 @@ export const MEDIA_EXTENSIONS: Record<MediaType, string[]> = {
     ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v",
     ".k3g", ".3g2", ".3gp", ".skm", ".qt", ".ts", ".m2ts",
   ],
-  music: [".mp3", ".flac", ".aac", ".m4a", ".wav", ".ogg", ".wma", ".opus"],
   photo: [".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif", ".avif", ".tiff", ".bmp"],
 };

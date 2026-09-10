@@ -4,7 +4,6 @@ import {
   BookOpen,
   Clapperboard,
   Image as ImageIcon,
-  Music2,
   ScrollText,
   Settings,
   PanelsTopLeft,
@@ -18,11 +17,10 @@ const TYPE_ICONS: Record<MediaType, React.ComponentType<{ className?: string }>>
   webtoon: PanelsTopLeft,
   novel: ScrollText,
   video: Clapperboard,
-  music: Music2,
   photo: ImageIcon,
 };
 
-const TYPES: MediaType[] = ["manga", "webtoon", "novel", "video", "music", "photo"];
+const TYPES: MediaType[] = ["manga", "webtoon", "novel", "video", "photo"];
 
 interface AppSidebarProps {
   width: number;

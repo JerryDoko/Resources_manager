@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Fraunces, DM_Sans } from "next/font/google";
 import { LibraryProvider } from "@/lib/store";
 import { SettingsPanel } from "@/components/SettingsPanel";
-import { MusicDock } from "@/components/MusicDock";
 import { UpdateNotifier } from "@/components/update/UpdateNotifier";
 import "./globals.css";
 
@@ -19,7 +18,7 @@ const dmSans = DM_Sans({
 export const metadata: Metadata = {
   title: "Resources Manager",
   description:
-    "本地一体化资源管理器 — 漫画、条漫、小说、视频、音乐与照片。私有离线、自动索引与系列归组、标签评分、本地阅读与播放。",
+    "本地一体化资源管理器 — 漫画、条漫、小说、视频与照片。私有离线、自动索引与系列归组、标签评分、本地阅读与播放。",
 };
 
 export default function RootLayout({
@@ -33,7 +32,6 @@ export default function RootLayout({
         <LibraryProvider>
           {children}
           <SettingsPanel />
-          <MusicDock />
           <UpdateNotifier />
         </LibraryProvider>
       </body>
