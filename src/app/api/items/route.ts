@@ -6,7 +6,12 @@ import {
   resetSeriesProgress,
   listItemsForSeriesIds,
   deleteSeriesMany,
+  regroupItems,
 } from "@/lib/library";
+import { getDb } from "@/lib/db";
+import { refreshSeriesStats } from "@/lib/scanner";
+import { seriesThumbPath } from "@/lib/thumbnails";
+import fs from "fs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,6 +44,31 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "缺少 seriesIds" }, { status: 400 });
       }
       const result = deleteSeriesMany(seriesIds);
+      return NextResponse.json(result);
+    }
+
+    if (body.action === "regroup") {
+      if (!Array.isArray(body.itemIds) ||
+          !body.itemIds.every((id: unknown) => typeof id === "string" && id.length > 0) ||
+          typeof body.sourceSeriesId !== "string") {
+        return NextResponse.json({ error: "分组参数无效" }, { status: 400 });
+      }
+      const result = regroupItems(body.itemIds, {
+        sourceSeriesId: body.sourceSeriesId,
+        title: typeof body.title === "string" ? body.title : undefined,
+        targetSeriesId: typeof body.targetSeriesId === "string" ? body.targetSeriesId : undefined,
+      });
+      for (const id of [result.targetId, body.sourceSeriesId]) {
+        try { fs.unlinkSync(seriesThumbPath(id)); } catch { /* thumbnail is generated lazily */ }
+      }
+      const db = getDb();
+      const now = Date.now();
+      try {
+        await refreshSeriesStats(db, result.targetId, now);
+        if (!result.sourceRemoved) await refreshSeriesStats(db, body.sourceSeriesId, now);
+      } catch (error) {
+        console.warn("[rm] 分组成功，但封面更新失败", error);
+      }
       return NextResponse.json(result);
     }
 

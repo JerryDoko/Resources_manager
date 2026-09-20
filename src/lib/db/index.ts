@@ -34,6 +34,7 @@ function ensureSchema(sqlite: Database.Database) {
       rating INTEGER NOT NULL DEFAULT 0,
       thumbnail_path TEXT,
       item_count INTEGER NOT NULL DEFAULT 0,
+      manual_group INTEGER NOT NULL DEFAULT 0,
       progress REAL NOT NULL DEFAULT 0,
       capture_date TEXT,
       latitude REAL,
@@ -115,6 +116,10 @@ function ensureSchema(sqlite: Database.Database) {
   sqlite.exec(
     "CREATE INDEX IF NOT EXISTS items_rating_idx ON media_items(rating)"
   );
+  const seriesCols = sqlite.prepare("PRAGMA table_info(series)").all() as { name: string }[];
+  if (!seriesCols.some((column) => column.name === "manual_group")) {
+    sqlite.exec("ALTER TABLE series ADD COLUMN manual_group INTEGER NOT NULL DEFAULT 0");
+  }
 }
 
 export function closeDb(profileId?: string) {

@@ -294,13 +294,7 @@ export async function scanFolder(
 
           if (existing) {
             result.updated++;
-            if (existing.seriesId !== seriesId) {
-              touchedSeries.add(existing.seriesId);
-              db.update(schema.mediaItems)
-                .set({ seriesId, updatedAt: now })
-                .where(eq(schema.mediaItems.id, existing.id))
-                .run();
-            }
+            // A user's logical grouping takes precedence over the disk folder.
             continue;
           }
 
@@ -384,6 +378,7 @@ export async function syncSeriesImages(seriesId: string): Promise<ScanResult> {
   if (!series || !["manga", "webtoon", "photo"].includes(series.mediaType)) {
     return result;
   }
+  if (series.manualGroup) return result;
 
   const items = db
     .select({ path: schema.mediaItems.path, sortOrder: schema.mediaItems.sortOrder })
@@ -536,9 +531,10 @@ async function findOrCreateSeries(
     ? and(
         eq(schema.series.title, title),
         eq(schema.series.author, author),
-        eq(schema.series.mediaType, mediaType)
+        eq(schema.series.mediaType, mediaType),
+        eq(schema.series.manualGroup, false)
       )
-    : and(eq(schema.series.title, title), eq(schema.series.mediaType, mediaType));
+    : and(eq(schema.series.title, title), eq(schema.series.mediaType, mediaType), eq(schema.series.manualGroup, false));
 
   const existing = db.select().from(schema.series).where(conditions).get();
   if (existing) return existing.id;
@@ -561,7 +557,7 @@ async function findOrCreateSeries(
   return id;
 }
 
-async function refreshSeriesStats(
+export async function refreshSeriesStats(
   db: ReturnType<typeof getDb>,
   seriesId: string,
   now: number

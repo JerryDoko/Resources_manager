@@ -1,9 +1,27 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, FolderPlus, RefreshCw, Download, Upload, Trash2, Globe, FolderOpen, ImageIcon } from "lucide-react";
+import {
+  Bot,
+  Copy,
+  Download,
+  FolderOpen,
+  FolderPlus,
+  Globe,
+  ImageIcon,
+  KeyRound,
+  RefreshCw,
+  ShieldCheck,
+  Trash2,
+  Upload,
+  X,
+} from "lucide-react";
 import { useLibrary } from "@/lib/store";
-import { MEDIA_TYPE_LABELS, type MediaType } from "@/lib/types";
+import {
+  MEDIA_TYPE_LABELS,
+  type AiPermissionLevel,
+  type MediaType,
+} from "@/lib/types";
 import { ShortcutSettings } from "@/components/ShortcutSettings";
 import { cn } from "@/lib/utils";
 
@@ -35,7 +53,15 @@ export function SettingsPanel() {
   const [settings, setSettings] = useState({
     remoteEnabled: false,
     remoteSubdomain: "resources",
+    aiEnabled: false,
+    aiPermissionLevel: "read" as AiPermissionLevel,
+    aiApiBaseUrl: "http://127.0.0.1:11434/v1",
+    aiVisionModel: "",
+    aiApiKey: "",
+    aiControlToken: "",
   });
+  const [aiSaving, setAiSaving] = useState(false);
+  const [aiMessage, setAiMessage] = useState<string | null>(null);
 
   const load = async () => {
     const [fRes, sRes, pRes] = await Promise.all([
@@ -51,6 +77,16 @@ export function SettingsPanel() {
     setSettings({
       remoteEnabled: !!sData.remoteEnabled,
       remoteSubdomain: sData.remoteSubdomain || "resources",
+      aiEnabled: !!sData.aiEnabled,
+      aiPermissionLevel: ["read", "reversible", "dangerous"].includes(
+        sData.aiPermissionLevel
+      )
+        ? sData.aiPermissionLevel
+        : "read",
+      aiApiBaseUrl: sData.aiApiBaseUrl || "http://127.0.0.1:11434/v1",
+      aiVisionModel: sData.aiVisionModel || "",
+      aiApiKey: sData.aiApiKey || "",
+      aiControlToken: sData.aiControlToken || "",
     });
   };
 
@@ -229,6 +265,46 @@ export function SettingsPanel() {
     setScanMsg("设置已保存");
   };
 
+  const saveAiSettings = async () => {
+    setAiSaving(true);
+    setAiMessage(null);
+    try {
+      const response = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          aiEnabled: settings.aiEnabled,
+          aiPermissionLevel: settings.aiPermissionLevel,
+          aiApiBaseUrl: settings.aiApiBaseUrl.trim(),
+          aiVisionModel: settings.aiVisionModel.trim(),
+          aiApiKey: settings.aiApiKey.trim(),
+          aiControlToken: settings.aiControlToken,
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "保存失败");
+      setSettings((current) => ({
+        ...current,
+        aiControlToken: data.aiControlToken || current.aiControlToken,
+      }));
+      setAiMessage("AI 控制设置已保存");
+      window.dispatchEvent(new Event("rm:ai-settings-updated"));
+    } catch (error) {
+      setAiMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setAiSaving(false);
+    }
+  };
+
+  const regenerateAiToken = () => {
+    const bytes = new Uint8Array(24);
+    window.crypto.getRandomValues(bytes);
+    const token = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+    setSettings((current) => ({ ...current, aiControlToken: token }));
+    setAiMessage("已生成新令牌，请保存设置后使用");
+  };
+
   const backup = async () => {
     const res = await fetch("/api/settings?backup=1", {
       signal: AbortSignal.timeout(10000),
@@ -264,12 +340,13 @@ export function SettingsPanel() {
           <div>
             <h2 className="text-display text-xl font-semibold">设置</h2>
             <p className="text-xs text-[var(--ink-muted)]">
-              本地库路径 · 快捷键 · 远程访问 · 备份恢复
+              本地库路径 · AI 控制 · 快捷键 · 备份恢复
             </p>
           </div>
           <button
             onClick={() => setShowSettings(false)}
             className="rounded-lg p-2 text-[var(--ink-muted)] hover:bg-[var(--bg)]"
+            aria-label="关闭设置"
           >
             <X className="h-5 w-5" />
           </button>
@@ -441,6 +518,193 @@ export function SettingsPanel() {
           </section>
 
           <ShortcutSettings />
+
+          <section className="rounded-lg border border-[var(--line)] bg-[#f7f9f8] p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="flex items-center gap-2 text-sm font-semibold">
+                  <Bot className="h-4 w-4 text-[var(--accent)]" />
+                  AI 控制
+                </h3>
+                <p className="mt-1 text-xs leading-5 text-[var(--ink-muted)]">
+                  提供本地控制接口。识图时，缩小后的图片会发送到你填写的视觉模型服务。
+                </p>
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={settings.aiEnabled}
+                  onChange={(event) =>
+                    setSettings((current) => ({
+                      ...current,
+                      aiEnabled: event.target.checked,
+                    }))
+                  }
+                />
+                启用接口
+              </label>
+            </div>
+
+            <div className="mt-4">
+              <p className="mb-2 flex items-center gap-1.5 text-xs font-medium">
+                <ShieldCheck className="h-3.5 w-3.5 text-[var(--accent)]" />
+                最高权限等级
+              </p>
+              <div className="grid grid-cols-3 gap-1 rounded-lg border border-[var(--line)] bg-white p-1">
+                {([
+                  ["read", "读取级", "搜索、查看信息"],
+                  ["reversible", "可恢复级", "评分、排序、标签"],
+                  ["dangerous", "危险级", "删除、重置进度"],
+                ] as const).map(([level, label, description]) => (
+                  <button
+                    key={level}
+                    type="button"
+                    onClick={() => {
+                      if (
+                        level !== "dangerous" ||
+                        window.confirm("危险级允许 AI 发起删除和重置进度请求，执行前仍会弹窗确认。是否继续？")
+                      ) {
+                        setSettings((current) => ({
+                          ...current,
+                          aiPermissionLevel: level,
+                        }));
+                      }
+                    }}
+                    className={cn(
+                      "min-w-0 rounded-md px-2 py-2 text-center transition",
+                      settings.aiPermissionLevel === level
+                        ? "bg-[var(--accent)] text-white"
+                        : "text-[var(--ink-muted)] hover:bg-[var(--bg)]"
+                    )}
+                  >
+                    <span className="block text-xs font-medium">{label}</span>
+                    <span
+                      className={cn(
+                        "mt-0.5 block truncate text-[10px]",
+                        settings.aiPermissionLevel === level
+                          ? "text-white/70"
+                          : "text-[var(--ink-faint)]"
+                      )}
+                    >
+                      {description}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-[11px] text-[var(--ink-faint)]">
+                危险动作只会进入待确认队列，必须在本应用弹窗中批准。
+              </p>
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <label className="text-xs text-[var(--ink-muted)] sm:col-span-2">
+                AI 服务地址
+                <input
+                  value={settings.aiApiBaseUrl}
+                  onChange={(event) =>
+                    setSettings((current) => ({
+                      ...current,
+                      aiApiBaseUrl: event.target.value,
+                    }))
+                  }
+                  className="mt-1 w-full rounded-md border border-[var(--line)] bg-white px-3 py-2 text-sm text-[var(--ink)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                  placeholder="http://127.0.0.1:11434/v1"
+                />
+              </label>
+              <label className="text-xs text-[var(--ink-muted)]">
+                视觉模型
+                <input
+                  value={settings.aiVisionModel}
+                  onChange={(event) =>
+                    setSettings((current) => ({
+                      ...current,
+                      aiVisionModel: event.target.value,
+                    }))
+                  }
+                  className="mt-1 w-full rounded-md border border-[var(--line)] bg-white px-3 py-2 text-sm text-[var(--ink)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                  placeholder="填写支持图片的模型名称"
+                />
+              </label>
+              <label className="text-xs text-[var(--ink-muted)]">
+                API Key
+                <input
+                  type="password"
+                  value={settings.aiApiKey}
+                  onChange={(event) =>
+                    setSettings((current) => ({
+                      ...current,
+                      aiApiKey: event.target.value,
+                    }))
+                  }
+                  className="mt-1 w-full rounded-md border border-[var(--line)] bg-white px-3 py-2 text-sm text-[var(--ink)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                  placeholder="本地服务通常可留空"
+                  autoComplete="off"
+                />
+              </label>
+            </div>
+
+            <div className="mt-3">
+              <p className="mb-1 flex items-center gap-1.5 text-xs text-[var(--ink-muted)]">
+                <KeyRound className="h-3.5 w-3.5" />
+                AI 控制令牌
+              </p>
+              <div className="flex gap-2">
+                <input
+                  readOnly
+                  value={settings.aiControlToken}
+                  className="min-w-0 flex-1 rounded-md border border-[var(--line)] bg-white px-3 py-2 font-mono text-[11px] text-[var(--ink-muted)]"
+                  placeholder="启用并保存后自动生成"
+                />
+                <button
+                  type="button"
+                  onClick={() => void navigator.clipboard.writeText(settings.aiControlToken)}
+                  disabled={!settings.aiControlToken}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[var(--line)] bg-white text-[var(--ink-muted)] hover:text-[var(--accent)] disabled:opacity-40"
+                  title="复制令牌"
+                  aria-label="复制 AI 控制令牌"
+                >
+                  <Copy className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={regenerateAiToken}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[var(--line)] bg-white text-[var(--ink-muted)] hover:text-[var(--accent)]"
+                  title="生成新令牌"
+                  aria-label="生成新的 AI 控制令牌"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-3 flex items-start gap-3 rounded-md border border-[var(--line)] bg-white px-3 py-3">
+              <Bot className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent)]" />
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-[var(--ink)]">GPT / Codex 插件</p>
+                <p className="mt-1 text-[11px] leading-5 text-[var(--ink-muted)]">
+                  插件会自动发现本机端口和控制令牌，无需填写连接地址。保持 Resources Manager
+                  运行，并在 GPT / Codex 中启用 Resources Manager 插件即可。
+                </p>
+                <p className="mt-1 text-[11px] text-[var(--accent)]">
+                  {settings.aiEnabled && settings.aiControlToken
+                    ? "本机插件桥接已就绪"
+                    : "启用接口并保存后即可连接"}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <p className="min-w-0 truncate text-xs text-[var(--accent)]">{aiMessage}</p>
+              <button
+                type="button"
+                onClick={() => void saveAiSettings()}
+                disabled={aiSaving}
+                className="shrink-0 rounded-md bg-[var(--ink)] px-4 py-2 text-xs font-medium text-white disabled:opacity-50"
+              >
+                {aiSaving ? "保存中…" : "保存 AI 设置"}
+              </button>
+            </div>
+          </section>
 
           <section className="flex items-center justify-between gap-4 border-y border-[var(--line)] py-4">
             <div className="min-w-0">

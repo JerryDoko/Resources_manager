@@ -28,6 +28,34 @@ let URL = `http://127.0.0.1:${PORT}`;
 let server = null;
 let quitting = false;
 
+function pluginConnectionPath() {
+  return path.join(app.getPath("userData"), "ai-plugin-connection.json");
+}
+
+function publishPluginConnection() {
+  try {
+    fs.mkdirSync(app.getPath("userData"), { recursive: true });
+    fs.writeFileSync(
+      pluginConnectionPath(),
+      JSON.stringify({ url: URL, pid: process.pid, updatedAt: new Date().toISOString() }),
+      { encoding: "utf8", mode: 0o600 }
+    );
+  } catch (error) {
+    console.warn("[rm] 无法发布 AI 插件连接信息", error);
+  }
+}
+
+function clearPluginConnection() {
+  try {
+    const file = pluginConnectionPath();
+    if (!fs.existsSync(file)) return;
+    const connection = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (connection.pid === process.pid) fs.unlinkSync(file);
+  } catch {
+    /* stale connection files are ignored by the plugin */
+  }
+}
+
 function waitForServer(url, tries = 100) {
   return new Promise((promiseResolve, promiseReject) => {
     let left = tries;
@@ -206,14 +234,33 @@ function startPackagedServer() {
 
 function startDevServer() {
   const MODE = process.env.LM_MODE || "dev";
-  const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
-  const args =
-    MODE === "start"
-      ? ["run", "start", "--", "-p", String(PORT), "-H", "127.0.0.1"]
-      : ["run", "dev", "--", "-p", String(PORT), "-H", "127.0.0.1"];
+  let command = process.platform === "win32" ? "npm.cmd" : "npm";
+  let args = ["run", "dev", "--", "-p", String(PORT), "-H", "127.0.0.1"];
+  let cwd = ROOT;
 
-  server = spawn(npmCmd, args, {
-    cwd: ROOT,
+  if (MODE === "start") {
+    const standaloneRoot = path.join(ROOT, ".next", "standalone");
+    const standaloneServer = path.join(standaloneRoot, "server.js");
+    if (!fs.existsSync(standaloneServer)) {
+      throw new Error("找不到 standalone 构建，请先运行 npm run build");
+    }
+    const staticSource = path.join(ROOT, ".next", "static");
+    const staticDestination = path.join(standaloneRoot, ".next", "static");
+    if (fs.existsSync(staticSource)) {
+      fs.cpSync(staticSource, staticDestination, { recursive: true, force: true });
+    }
+    const publicSource = path.join(ROOT, "public");
+    const publicDestination = path.join(standaloneRoot, "public");
+    if (fs.existsSync(publicSource)) {
+      fs.cpSync(publicSource, publicDestination, { recursive: true, force: true });
+    }
+    command = process.env.RESOURCES_MANAGER_NODE || "node";
+    args = [standaloneServer];
+    cwd = standaloneRoot;
+  }
+
+  server = spawn(command, args, {
+    cwd,
     env: {
       ...process.env,
       PORT: String(PORT),
@@ -239,6 +286,7 @@ function startServer() {
 }
 
 function stopServer() {
+  clearPluginConnection();
   if (!server || server.killed) return;
   const child = server;
   server = null;
@@ -466,6 +514,7 @@ app.whenReady().then(async () => {
     app.quit();
     return;
   }
+  publishPluginConnection();
   createWindow();
 
   app.on("activate", () => {

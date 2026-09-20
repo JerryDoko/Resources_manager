@@ -9,6 +9,7 @@ export type SortBy = "title" | "rating" | "author" | "updated" | "added" | "capt
 export type ItemSortKey = "name" | "created" | "updated";
 export type SortDirection = "asc" | "desc";
 export type PlaybackMode = "sequential" | "repeat-all" | "repeat-one" | "shuffle";
+export type AiPermissionLevel = "read" | "reversible" | "dangerous";
 export interface FolderSortPreference {
   key: ItemSortKey;
   direction: SortDirection;
@@ -33,6 +34,7 @@ export interface Series {
   rating: number;
   thumbnailPath: string | null;
   itemCount: number;
+  manualGroup: boolean;
   progress: number;
   captureDate: string | null;
   latitude: number | null;
@@ -82,6 +84,12 @@ export interface AppSettings {
   librarySortLocked: boolean;
   librarySortBy: SortBy;
   itemSortPreferences: Record<string, FolderSortPreference>;
+  aiEnabled: boolean;
+  aiPermissionLevel: AiPermissionLevel;
+  aiApiBaseUrl: string;
+  aiVisionModel: string;
+  aiApiKey: string;
+  aiControlToken: string;
 }
 
 export type LibraryViewMode = "import" | "series";

@@ -54,6 +54,24 @@
 
 ### 数据
 - SQLite 本地库 · 标签 / 评分 · 视频进度 · 备份恢复
+- 在系列内容列表中勾选文件，可创建新逻辑分组或移动到同类型的已有分组；只修改库索引，不移动磁盘文件，重扫也不会重复导入
+
+### AI 控制
+- 设置中可启用本地 AI 接口，并选择读取级、可恢复级或危险级权限
+- 危险动作进入应用内确认队列，批准前不会执行
+- 支持资源搜索、详情与统计、评分、标签、重置进度和移除系列
+- 可连接兼容 OpenAI Chat Completions 的视觉模型，为图片自动生成并应用标签
+- 控制入口为 `GET/POST /api/ai`，请求使用设置页生成的 Bearer Token
+- `plugins/resources-manager` 提供本地 MCP 插件；桌面应用运行时会自动发布端口，插件无需手填地址或令牌
+
+### 安装本地 GPT / Codex 插件
+
+```bash
+codex plugin marketplace add "$(pwd)"
+codex plugin add resources-manager@personal
+```
+
+安装后新建一个 GPT / Codex 对话，并启用 `Resources Manager` 插件。应用必须在本机运行，且设置中的 AI 控制已启用。插件不会绕过权限设置；危险操作仍需回到 Resources Manager 弹窗确认。
 
 ### 桌面
 - `npm run resources` 内置窗口（关窗停服）

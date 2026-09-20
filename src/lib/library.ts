@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, like, or, sql, inArray } from "drizzle-orm";
 import fs from "fs";
 import path from "path";
+import { randomBytes } from "crypto";
 import { v4 as uuid } from "uuid";
 import { getDb, getSqlite, schema } from "@/lib/db";
 import type { MediaType, SortBy, TagMatchMode, AppSettings } from "@/lib/types";
@@ -238,6 +239,7 @@ export function mergeSeries(
       mediaType,
       rating: Math.max(...sources.map((s) => s!.rating)),
       itemCount: 0,
+      manualGroup: true,
       progress: 0,
       createdAt: now,
       updatedAt: now,
@@ -274,6 +276,76 @@ export function mergeSeries(
     .run();
 
   return getSeriesById(newId);
+}
+
+/** Move indexed items only; their on-disk paths are never changed. */
+export function regroupItems(
+  itemIds: string[],
+  options: { sourceSeriesId: string; title?: string; targetSeriesId?: string }
+) {
+  const ids = [...new Set(itemIds)].filter(Boolean);
+  if (!ids.length || ids.length > 10000) throw new Error("请选择要分组的文件");
+  if (!!options.title === !!options.targetSeriesId) {
+    throw new Error("请选择新建分组或已有分组");
+  }
+
+  const sqlite = getSqlite();
+  const now = Date.now();
+  const transaction = sqlite.transaction(() => {
+    const source = sqlite.prepare("SELECT * FROM series WHERE id = ?").get(options.sourceSeriesId) as
+      | { id: string; media_type: string; rating: number; author: string | null }
+      | undefined;
+    if (!source) throw new Error("原分组不存在");
+
+    const rows = sqlite.prepare(
+      `SELECT id, media_type FROM media_items WHERE series_id = ? AND id IN (${ids.map(() => "?").join(",")})`
+    ).all(options.sourceSeriesId, ...ids) as { id: string; media_type: string }[];
+    if (rows.length !== ids.length || rows.some((row) => row.media_type !== source.media_type)) {
+      throw new Error("所选文件已变化，请刷新后重试");
+    }
+
+    let targetId = options.targetSeriesId;
+    if (targetId) {
+      const target = sqlite.prepare("SELECT id, media_type FROM series WHERE id = ?").get(targetId) as
+        | { id: string; media_type: string }
+        | undefined;
+      if (!target || target.media_type !== source.media_type || target.id === source.id) {
+        throw new Error("目标分组不存在或类型不匹配");
+      }
+    } else {
+      const title = options.title?.trim() || "";
+      if (!title || title.length > 120) throw new Error("分组名称须为 1 到 120 个字符");
+      targetId = uuid();
+      sqlite.prepare(
+        `INSERT INTO series (id, title, author, media_type, rating, item_count, progress, manual_group, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 0, 0, 1, ?, ?)`
+      ).run(targetId, title, source.author, source.media_type, source.rating, now, now);
+    }
+
+    const nextOrder = (sqlite.prepare(
+      "SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM media_items WHERE series_id = ?"
+    ).get(targetId) as { next_order: number }).next_order;
+    const update = sqlite.prepare(
+      "UPDATE media_items SET series_id = ?, sort_order = ?, updated_at = ? WHERE id = ?"
+    );
+    for (const [index, id] of ids.entries()) update.run(targetId, nextOrder + index, now, id);
+
+    const remaining = (sqlite.prepare(
+      "SELECT COUNT(*) AS count FROM media_items WHERE series_id = ?"
+    ).get(source.id) as { count: number }).count;
+    const recount = sqlite.prepare(
+      `UPDATE series SET item_count = (SELECT COUNT(*) FROM media_items WHERE series_id = ?),
+       progress = COALESCE((SELECT AVG(progress) FROM media_items WHERE series_id = ?), 0),
+       thumbnail_path = NULL, updated_at = ? WHERE id = ?`
+    );
+    recount.run(targetId, targetId, now, targetId);
+    if (remaining > 0) recount.run(source.id, source.id, now, source.id);
+    if (remaining === 0) sqlite.prepare("DELETE FROM series WHERE id = ?").run(source.id);
+    return { targetId, sourceRemoved: remaining === 0, moved: ids.length };
+  });
+
+  const moved = transaction();
+  return moved;
 }
 
 export function updateItemProgress(id: string, progress: number) {
@@ -513,6 +585,12 @@ const DEFAULT_SETTINGS: AppSettings = {
   librarySortLocked: false,
   librarySortBy: "title",
   itemSortPreferences: {},
+  aiEnabled: false,
+  aiPermissionLevel: "read",
+  aiApiBaseUrl: "http://127.0.0.1:11434/v1",
+  aiVisionModel: "",
+  aiApiKey: "",
+  aiControlToken: "",
 };
 
 export function getSettings(): AppSettings {
@@ -533,6 +611,16 @@ export function getSettings(): AppSettings {
       ? (map.librarySortBy as AppSettings["librarySortBy"])
       : DEFAULT_SETTINGS.librarySortBy,
     itemSortPreferences: parseItemSortPreferences(map.itemSortPreferences),
+    aiEnabled: map.aiEnabled === "true",
+    aiPermissionLevel: (["read", "reversible", "dangerous"] as const).includes(
+      map.aiPermissionLevel as AppSettings["aiPermissionLevel"]
+    )
+      ? (map.aiPermissionLevel as AppSettings["aiPermissionLevel"])
+      : DEFAULT_SETTINGS.aiPermissionLevel,
+    aiApiBaseUrl: map.aiApiBaseUrl || DEFAULT_SETTINGS.aiApiBaseUrl,
+    aiVisionModel: map.aiVisionModel || "",
+    aiApiKey: map.aiApiKey || "",
+    aiControlToken: map.aiControlToken || "",
   };
 }
 
@@ -559,6 +647,9 @@ export function updateSettings(partial: Partial<AppSettings>) {
   const db = getDb();
   const current = getSettings();
   const next = { ...current, ...partial };
+  if (next.aiEnabled && !next.aiControlToken) {
+    next.aiControlToken = randomBytes(24).toString("hex");
+  }
   for (const [key, value] of Object.entries(next)) {
     db.insert(schema.settings)
       .values({
@@ -622,7 +713,11 @@ export function exportBackup() {
     tags: db.select().from(schema.tags).all(),
     seriesTags: getSqlite().prepare("SELECT * FROM series_tags").all(),
     folders: db.select().from(schema.libraryFolders).all(),
-    settings: db.select().from(schema.settings).all(),
+    settings: db
+      .select()
+      .from(schema.settings)
+      .all()
+      .filter((setting) => !["aiApiKey", "aiControlToken"].includes(setting.key)),
   };
 }
 
@@ -639,10 +734,10 @@ export function importBackup(data: ReturnType<typeof exportBackup>) {
     `);
 
     const insertSeries = sqlite.prepare(`
-      INSERT INTO series (id, title, author, media_type, rating, thumbnail_path, item_count, progress, capture_date, latitude, longitude, created_at, updated_at)
-      VALUES (@id, @title, @author, @mediaType, @rating, @thumbnailPath, @itemCount, @progress, @captureDate, @latitude, @longitude, @createdAt, @updatedAt)
+      INSERT INTO series (id, title, author, media_type, rating, thumbnail_path, item_count, progress, capture_date, latitude, longitude, created_at, updated_at, manual_group)
+      VALUES (@id, @title, @author, @mediaType, @rating, @thumbnailPath, @itemCount, @progress, @captureDate, @latitude, @longitude, @createdAt, @updatedAt, @manualGroup)
     `);
-    for (const s of data.series) insertSeries.run(s);
+    for (const s of data.series) insertSeries.run({ ...s, manualGroup: (s as { manualGroup?: boolean }).manualGroup ?? false });
 
     const insertItem = sqlite.prepare(`
       INSERT INTO media_items (id, series_id, title, path, media_type, sort_order, duration, page_count, file_size, capture_date, latitude, longitude, progress, rating, thumbnail_path, metadata, created_at, updated_at)

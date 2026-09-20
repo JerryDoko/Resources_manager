@@ -19,6 +19,7 @@ export const series = sqliteTable(
     rating: integer("rating").notNull().default(0),
     thumbnailPath: text("thumbnail_path"),
     itemCount: integer("item_count").notNull().default(0),
+    manualGroup: integer("manual_group", { mode: "boolean" }).notNull().default(false),
     progress: real("progress").notNull().default(0),
     captureDate: text("capture_date"),
     latitude: real("latitude"),

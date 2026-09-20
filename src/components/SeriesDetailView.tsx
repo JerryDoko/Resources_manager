@@ -17,6 +17,12 @@ import {
   ChevronDown,
   Lock,
   LockOpen,
+  LoaderCircle,
+  Sparkles,
+  FolderPlus,
+  FolderInput,
+  Search,
+  X,
 } from "lucide-react";
 import { useLibrary } from "@/lib/store";
 import {
@@ -76,6 +82,7 @@ interface SeriesDetail {
   mediaType: string;
   rating: number;
   itemCount: number;
+  manualGroup: boolean;
   progress: number;
   thumbnailPath: string | null;
   captureDate: string | null;
@@ -178,6 +185,8 @@ export function SeriesDetailView({
   const [thumbFailed, setThumbFailed] = useState(false);
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
   const [itemRatingFilter, setItemRatingFilter] = useState(0);
+  const [itemSearch, setItemSearch] = useState("");
+  const [itemSearchField, setItemSearchField] = useState<"all" | "name" | "path" | "date">("all");
   const [itemSortKey, setItemSortKey] = useState<ItemSortKey>("name");
   const [itemSortDirection, setItemSortDirection] = useState<SortDirection>("asc");
   const [itemSortLocked, setItemSortLocked] = useState(false);
@@ -186,6 +195,16 @@ export function SeriesDetailView({
   const [focusedItemId, setFocusedItemId] = useState<string | null>(null);
   const [itemThumbFailed, setItemThumbFailed] = useState(false);
   const [drag, setDrag] = useState<DragBox | null>(null);
+  const [aiTagging, setAiTagging] = useState(false);
+  const [aiTagMessage, setAiTagMessage] = useState<string | null>(null);
+  const [groupMode, setGroupMode] = useState<"create" | "move" | null>(null);
+  const [groupName, setGroupName] = useState("");
+  const [groupSearch, setGroupSearch] = useState("");
+  const [groupTargets, setGroupTargets] = useState<Array<{ id: string; title: string; itemCount: number }>>([]);
+  const [groupTargetId, setGroupTargetId] = useState("");
+  const [groupBusy, setGroupBusy] = useState(false);
+  const [groupError, setGroupError] = useState<string | null>(null);
+  const groupMediaType = data?.mediaType;
 
   const listContainerRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Map<string, HTMLElement>>(new Map());
@@ -322,6 +341,51 @@ export function SeriesDetailView({
     if (tag) await toggleTag(tag.id);
   };
 
+  const analyzeImageTags = async () => {
+    if (!data) return;
+    const target = focusedItemId
+      ? data.items.find((item) => item.id === focusedItemId)
+      : data.items[0];
+    if (!target) return;
+    setAiTagging(true);
+    setAiTagMessage("正在识别图片…");
+    try {
+      const settingsResponse = await fetch("/api/settings", {
+        signal: AbortSignal.timeout(10000),
+      });
+      const settings = await settingsResponse.json();
+      if (!settings.aiEnabled) throw new Error("请先在设置中启用 AI 控制");
+      if (settings.aiPermissionLevel === "read") {
+        throw new Error("图片打标签需要“可恢复级”或“危险级”权限");
+      }
+      const response = await fetch("/api/ai", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${settings.aiControlToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "image.analyzeAndTag",
+          params: { itemId: target.id, maxTags: 6 },
+        }),
+        signal: AbortSignal.timeout(100000),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "图片识别失败");
+      const names = (result.result?.tags || [])
+        .map((tag: { name?: string }) => tag.name)
+        .filter(Boolean);
+      setAiTagMessage(`已添加标签：${names.join("、")}`);
+      await refreshTags();
+      await load();
+      refresh();
+    } catch (error) {
+      setAiTagMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setAiTagging(false);
+    }
+  };
+
   const removeSeries = async () => {
     if (!confirm("从库中移除此系列？（不会删除磁盘文件）")) return;
     await fetch(`/api/library/${seriesId}`, {
@@ -438,6 +502,66 @@ export function SeriesDetailView({
     });
   };
 
+  useEffect(() => {
+    if (groupMode !== "move" || !groupMediaType) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const query = new URLSearchParams({ type: groupMediaType, limit: "200", q: groupSearch });
+        const response = await fetch(`/api/library?${query}`, { signal: controller.signal });
+        if (!response.ok) throw new Error("无法读取分组列表");
+        const result = await response.json();
+        setGroupTargets((result.items || []).filter((item: { id: string }) => item.id !== seriesId));
+      } catch (error) {
+        if (!controller.signal.aborted) setGroupError(error instanceof Error ? error.message : "读取失败");
+      }
+    }, 200);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [groupMode, groupSearch, groupMediaType, seriesId]);
+
+  const submitGroup = async () => {
+    if (!groupMode || groupBusy) return;
+    const title = groupName.trim();
+    if (groupMode === "create" && !title) {
+      setGroupError("请输入新分组名称");
+      return;
+    }
+    if (groupMode === "move" && !groupTargetId) {
+      setGroupError("请选择目标分组");
+      return;
+    }
+    setGroupBusy(true);
+    setGroupError(null);
+    try {
+      const response = await fetch("/api/items", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "regroup",
+          sourceSeriesId: seriesId,
+          itemIds: [...selectedItemIds],
+          ...(groupMode === "create" ? { title } : { targetSeriesId: groupTargetId }),
+        }),
+        signal: AbortSignal.timeout(30000),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "分组失败");
+      setGroupMode(null);
+      setSelectedItemIds(new Set());
+      setFocusedItemId(null);
+      await refresh();
+      if (result.sourceRemoved) onRemoved();
+      else await load();
+    } catch (error) {
+      setGroupError(error instanceof Error ? error.message : "分组失败");
+    } finally {
+      setGroupBusy(false);
+    }
+  };
+
   const selectRange = (fromId: string, toId: string, ids: string[]) => {
     const a = ids.indexOf(fromId);
     const b = ids.indexOf(toId);
@@ -552,20 +676,30 @@ export function SeriesDetailView({
   const focusedItem = focusedItemId
     ? data?.items.find((i) => i.id === focusedItemId) ?? null
     : null;
+  const normalizedSearch = itemSearch.trim().normalize("NFKC").toLocaleLowerCase();
   const filteredItems =
     data?.items.filter((item) => {
-      if (itemRatingFilter === -1) return item.rating === 0;
-      if (itemRatingFilter === 0) return true;
-      return item.rating >= itemRatingFilter;
+      if (itemRatingFilter === -1 && item.rating !== 0) return false;
+      if (itemRatingFilter > 0 && item.rating < itemRatingFilter) return false;
+      if (!normalizedSearch) return true;
+
+      const dates = [item.captureDate, formatDate(item.fileCreatedAt), formatDate(item.fileModifiedAt)]
+        .filter(Boolean)
+        .join(" ");
+      const fields = {
+        name: item.title,
+        path: item.path,
+        date: dates,
+        all: [item.title, item.path, dates, item.metadata || "", formatBytes(item.fileSize)].join(" "),
+      };
+      return fields[itemSearchField].normalize("NFKC").toLocaleLowerCase().includes(normalizedSearch);
     }) ?? [];
   const sortedItems = sortItems(filteredItems, itemSortKey, itemSortDirection);
-  const sortedAllItems = sortItems(data?.items ?? [], itemSortKey, itemSortDirection);
 
   const viewerItem = data?.items.find((i) => i.id === viewerItemId);
   const totalSize = data?.items.reduce((s, i) => s + (i.fileSize || 0), 0) ?? 0;
   const typeLabel =
     MEDIA_TYPE_LABELS[(data?.mediaType as MediaType) || "manga"] || data?.mediaType;
-  const showCheckboxes = selectedItemIds.size > 0 || drag !== null;
   const orderedFilteredIds = sortedItems.map((i) => i.id);
   const dragBoxStyle = drag
     ? {
@@ -596,7 +730,7 @@ export function SeriesDetailView({
     };
     frame = requestAnimationFrame(restore);
     return () => cancelAnimationFrame(frame);
-  }, [viewerItemId, data, itemRatingFilter, itemSortKey, itemSortDirection]);
+  }, [viewerItemId, data, itemRatingFilter, itemSearch, itemSearchField, itemSortKey, itemSortDirection]);
 
   // 播放器独占：不与详情页 DOM 并存，避免叠层
   if (isActive && viewerItem && data) {
@@ -617,7 +751,7 @@ export function SeriesDetailView({
                 : "manga"
           }
           itemPath={viewerItem.path}
-          playlist={sortedAllItems.map((i) => ({
+          playlist={sortedItems.map((i) => ({
             id: i.id,
             title: i.title,
             path: i.path,
@@ -634,7 +768,7 @@ export function SeriesDetailView({
           itemId={viewerItem.id}
           title={viewerItem.title}
           initialProgress={viewerItem.progress}
-          playlist={sortedAllItems.map((i) => ({
+          playlist={sortedItems.map((i) => ({
             id: i.id,
             title: i.title,
             progress: i.progress,
@@ -698,6 +832,64 @@ export function SeriesDetailView({
           >
             返回首页
           </button>
+        </div>
+      )}
+
+      {groupMode && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/45 p-4" onMouseDown={(event) => {
+          if (event.target === event.currentTarget && !groupBusy) setGroupMode(null);
+        }}>
+          <div role="dialog" aria-modal="true" aria-label={groupMode === "create" ? "创建新分组" : "移动到已有分组"} className="w-full max-w-md rounded-lg border border-[var(--line)] bg-white p-5 shadow-xl">
+            <h3 className="text-base font-semibold">{groupMode === "create" ? "创建新分组" : "移动到已有分组"}</h3>
+            <p className="mt-1 text-xs text-[var(--ink-muted)]">
+              已选 {selectedItemIds.size} 个文件。仅更改资源库分组，不移动磁盘文件。
+            </p>
+            {groupMode === "create" ? (
+              <input
+                autoFocus
+                value={groupName}
+                maxLength={120}
+                onChange={(event) => setGroupName(event.target.value)}
+                onKeyDown={(event) => { if (event.key === "Enter") void submitGroup(); }}
+                placeholder="新分组名称"
+                className="mt-4 w-full rounded-md border border-[var(--line)] px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[var(--accent)]"
+              />
+            ) : (
+              <>
+                <input
+                  autoFocus
+                  value={groupSearch}
+                  onChange={(event) => { setGroupSearch(event.target.value); setGroupTargetId(""); }}
+                  placeholder="搜索同类型分组"
+                  className="mt-4 w-full rounded-md border border-[var(--line)] px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                />
+                <div className="mt-2 max-h-56 overflow-y-auto rounded-md border border-[var(--line)]">
+                  {groupTargets.map((target) => (
+                    <button
+                      key={target.id}
+                      type="button"
+                      onClick={() => setGroupTargetId(target.id)}
+                      className={cn(
+                        "flex w-full items-center justify-between gap-3 border-b border-[var(--line)] px-3 py-2 text-left text-sm last:border-b-0",
+                        groupTargetId === target.id ? "bg-[var(--accent-soft)] text-[var(--accent)]" : "hover:bg-[var(--bg)]"
+                      )}
+                    >
+                      <span className="min-w-0 truncate">{target.title}</span>
+                      <span className="shrink-0 text-xs text-[var(--ink-faint)]">{target.itemCount} 个</span>
+                    </button>
+                  ))}
+                  {groupTargets.length === 0 && <p className="px-3 py-4 text-center text-xs text-[var(--ink-faint)]">没有可选分组</p>}
+                </div>
+              </>
+            )}
+            {groupError && <p className="mt-3 text-xs text-red-600">{groupError}</p>}
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" disabled={groupBusy} onClick={() => setGroupMode(null)} className="rounded-md border border-[var(--line)] px-4 py-2 text-xs">取消</button>
+              <button type="button" disabled={groupBusy} onClick={() => void submitGroup()} className="rounded-md bg-[var(--accent)] px-4 py-2 text-xs font-medium text-white disabled:opacity-50">
+                {groupBusy ? "处理中…" : groupMode === "create" ? "创建并分组" : "移动"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -919,13 +1111,34 @@ export function SeriesDetailView({
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <h2 className="text-sm font-semibold">标签</h2>
-                <button
-                  onClick={createAndApplyTag}
-                  className="text-xs text-[var(--accent)] underline"
-                >
-                  + 新建标签
-                </button>
+                <div className="flex items-center gap-2">
+                  {isImageSequence && data.items.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => void analyzeImageTags()}
+                      disabled={aiTagging}
+                      className="flex items-center gap-1 rounded-md border border-[var(--line)] bg-white px-2 py-1 text-xs text-[var(--accent)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
+                      title={focusedItemId ? "识别当前选中的图片" : "识别第一张图片"}
+                    >
+                      {aiTagging ? (
+                        <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-3.5 w-3.5" />
+                      )}
+                      AI 识图标签
+                    </button>
+                  )}
+                  <button
+                    onClick={createAndApplyTag}
+                    className="text-xs text-[var(--accent)] underline"
+                  >
+                    + 新建标签
+                  </button>
+                </div>
               </div>
+              {aiTagMessage && (
+                <p className="mb-2 text-xs text-[var(--ink-muted)]">{aiTagMessage}</p>
+              )}
               <div className="flex flex-wrap gap-2">
                 {tags.map((tag) => {
                   const active = data.tags.some((t) => t.id === tag.id);
@@ -955,7 +1168,7 @@ export function SeriesDetailView({
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-sm font-semibold">
                   内容列表 · {filteredItems.length}
-                  {itemRatingFilter !== 0 && (
+                  {(itemRatingFilter !== 0 || normalizedSearch) && (
                     <span className="ml-1 font-normal text-[var(--ink-faint)]">
                       / {data.items.length}
                     </span>
@@ -963,9 +1176,23 @@ export function SeriesDetailView({
                 </h2>
                 <div className="flex items-center gap-2">
                   {selectedItemIds.size > 0 && (
-                    <span className="text-xs text-[var(--accent)]">
-                      已选 {selectedItemIds.size}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-[var(--accent)]">已选 {selectedItemIds.size}</span>
+                      <button
+                        type="button"
+                        onClick={() => { setGroupMode("create"); setGroupError(null); }}
+                        className="flex h-8 items-center gap-1 rounded-md border border-[var(--line)] bg-white px-2 text-xs hover:text-[var(--accent)]"
+                      >
+                        <FolderPlus className="h-3.5 w-3.5" />新分组
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setGroupMode("move"); setGroupError(null); setGroupTargetId(""); }}
+                        className="flex h-8 items-center gap-1 rounded-md border border-[var(--line)] bg-white px-2 text-xs hover:text-[var(--accent)]"
+                      >
+                        <FolderInput className="h-3.5 w-3.5" />移动到分组
+                      </button>
+                    </div>
                   )}
                   {autoImportMessage && (
                     <span className="text-xs text-[var(--accent)]">
@@ -1049,23 +1276,53 @@ export function SeriesDetailView({
                       <LockOpen className="h-3.5 w-3.5" />
                     )}
                   </button>
-                  <label className="flex items-center gap-1.5 text-xs text-[var(--ink-muted)]">
-                    <Filter className="h-3.5 w-3.5" />
-                    <select
-                      value={itemRatingFilter}
-                      onChange={(e) => setItemRatingFilter(Number(e.target.value))}
-                      className="rounded-lg border border-[var(--line)] bg-white px-2 py-1 text-xs outline-none"
-                    >
-                      <option value={0}>全部评分</option>
-                      <option value={-1}>未评分</option>
-                      <option value={5}>5 星</option>
-                      <option value={4}>4 星及以上</option>
-                      <option value={3}>3 星及以上</option>
-                      <option value={2}>2 星及以上</option>
-                      <option value={1}>1 星及以上</option>
-                    </select>
-                  </label>
                 </div>
+              </div>
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <div className="flex h-9 min-w-[12rem] flex-1 items-center gap-2 rounded-md border border-[var(--line)] bg-white px-2.5 focus-within:ring-2 focus-within:ring-[var(--accent)]">
+                  <Search className="h-4 w-4 shrink-0 text-[var(--ink-faint)]" />
+                  <input
+                    type="search"
+                    value={itemSearch}
+                    onChange={(event) => setItemSearch(event.target.value)}
+                    placeholder="搜索文件夹内容"
+                    aria-label="搜索文件夹内容"
+                    className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-[var(--ink-faint)]"
+                  />
+                  {itemSearch && (
+                    <button type="button" onClick={() => setItemSearch("")} title="清除搜索" aria-label="清除搜索" className="text-[var(--ink-faint)] hover:text-[var(--ink)]">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+                <select
+                  value={itemSearchField}
+                  onChange={(event) => setItemSearchField(event.target.value as typeof itemSearchField)}
+                  aria-label="搜索范围"
+                  className="h-9 rounded-md border border-[var(--line)] bg-white px-2 text-xs text-[var(--ink-muted)] outline-none"
+                >
+                  <option value="all">全部信息</option>
+                  <option value="name">名称</option>
+                  <option value="path">路径</option>
+                  <option value="date">日期</option>
+                </select>
+                <label className="flex h-9 items-center gap-1.5 rounded-md border border-[var(--line)] bg-white px-2 text-xs text-[var(--ink-muted)]">
+                  <Filter className="h-3.5 w-3.5" />
+                  <select
+                    value={itemRatingFilter}
+                    onChange={(event) => setItemRatingFilter(Number(event.target.value))}
+                    aria-label="评分筛选"
+                    className="bg-transparent text-xs outline-none"
+                  >
+                    <option value={0}>全部评分</option>
+                    <option value={-1}>未评分</option>
+                    <option value={5}>5 星</option>
+                    <option value={4}>4 星及以上</option>
+                    <option value={3}>3 星及以上</option>
+                    <option value={2}>2 星及以上</option>
+                    <option value={1}>1 星及以上</option>
+                  </select>
+                </label>
               </div>
               <div
                 ref={listContainerRef}
@@ -1090,8 +1347,12 @@ export function SeriesDetailView({
                     )}
                   >
                     <div className="flex items-center gap-2 px-3 py-3">
-                      {showCheckboxes && (
-                        <div
+                      {(
+                        <button
+                          type="button"
+                          aria-label={`${selected ? "取消选择" : "选择"} ${item.title}`}
+                          aria-pressed={selected}
+                          onClick={() => toggleItemSelect(item.id)}
                           className={cn(
                             "flex h-5 w-5 shrink-0 items-center justify-center rounded border transition",
                             selected
@@ -1100,7 +1361,7 @@ export function SeriesDetailView({
                           )}
                         >
                           <Check className="h-3 w-3" />
-                        </div>
+                        </button>
                       )}
                       <button
                         type="button"

@@ -1,0 +1,28 @@
+{
+  "name": "resources-manager",
+  "version": "0.1.0",
+  "description": "Let GPT and Codex search, organize, tag, and manage a local Resources Manager library.",
+  "author": {
+    "name": "JerryDoko",
+    "url": "https://github.com/JerryDoko"
+  },
+  "repository": "https://github.com/JerryDoko/Resources_manager",
+  "license": "MIT",
+  "keywords": ["resources", "media", "library", "mcp", "local"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Resources Manager",
+    "shortDescription": "用 GPT 搜索、整理和标记本地资源库",
+    "longDescription": "连接本机 Resources Manager，通过三级权限安全地搜索、查看、评分、排序、打标签、识图和执行需确认的资源操作。",
+    "developerName": "JerryDoko",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write", "Local"],
+    "defaultPrompt": [
+      "搜索我的 Resources Manager 资源库。",
+      "整理并给最近添加的图片打标签。",
+      "统计我的资源库内容。"
+    ],
+    "brandColor": "#7C3AED"
+  },
+  "mcpServers": "./.mcp.json"
+}
