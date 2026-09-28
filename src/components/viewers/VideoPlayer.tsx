@@ -11,13 +11,20 @@ import {
   Camera,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  Check,
+  RotateCcw,
   Download,
   GripVertical,
+  Gauge,
+  FolderOpen,
   ImagePlus,
   ListVideo,
   Repeat,
   Repeat1,
   Shuffle,
+  SlidersHorizontal,
+  Volume2,
 } from "lucide-react";
 import {
   DEFAULT_VIDEO_SHORTCUTS,
@@ -31,6 +38,8 @@ import { formatDuration } from "@/lib/utils";
 import { FullscreenPortal } from "./FullscreenPortal";
 import { useAppChrome } from "@/lib/useAppChrome";
 import type { PlaybackMode } from "@/lib/types";
+import { useVideoPreferences } from "@/lib/useVideoPreferences";
+import { DEFAULT_VIDEO_PREFERENCES } from "@/lib/video-preferences";
 
 export interface PlaylistItem {
   id: string;
@@ -53,6 +62,7 @@ interface Props {
 
 type HoldMode = "none" | "speed" | "rewind";
 const PLAYBACK_MODES: PlaybackMode[] = ["sequential", "repeat-all", "repeat-one", "shuffle"];
+const PLAYBACK_RATES = [1, 1.25, 1.5, 2, 3];
 const PLAYBACK_LABELS: Record<PlaybackMode, string> = {
   sequential: "顺序播放",
   "repeat-all": "列表循环",
@@ -78,6 +88,11 @@ export function VideoPlayer({
   onThumbnailUpdated,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const { preferences, readyItemId, saveStatus, updatePreferences } = useVideoPreferences(itemId, videoRef);
+  const [playbackSettingsOpen, setPlaybackSettingsOpen] = useState(false);
+  const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
+  const resumeContext = useRef({ playlist, initialProgress });
+  resumeContext.current = { playlist, initialProgress };
   const [playing, setPlaying] = useState(false);
   const [ab, setAb] = useState<{ a: number | null; b: number | null }>({
     a: null,
@@ -298,7 +313,7 @@ export function VideoPlayer({
     setCapturePreview(null);
   }, [capturePreview, title, flash]);
 
-  const saveCaptureAsThumb = useCallback(async () => {
+  const saveCaptureAsThumb = useCallback(async (target: "item" | "series") => {
     if (!capturePreview) return;
     setCaptureBusy(true);
     try {
@@ -308,8 +323,7 @@ export function VideoPlayer({
         body: JSON.stringify({
           itemId,
           dataUrl: capturePreview,
-          // 详情页封面 + 当前视频列表缩略图
-          targets: ["series", "item"],
+          targets: [target],
         }),
         signal: AbortSignal.timeout(10000),
       });
@@ -318,7 +332,7 @@ export function VideoPlayer({
         flash(err.error || "设置缩略图失败");
         return;
       }
-      flash("已设为详情页缩略图");
+      flash(target === "item" ? "已替换当前视频封面" : "已替换视频文件夹封面");
       setCapturePreview(null);
       onThumbnailUpdated?.();
     } catch {
@@ -355,6 +369,21 @@ export function VideoPlayer({
     []
   );
 
+  const changePreferences = useCallback((changes: Parameters<typeof updatePreferences>[0]) => {
+    clearHold();
+    updatePreferences(changes);
+  }, [clearHold, updatePreferences]);
+
+  useEffect(() => {
+    setPlaybackSettingsOpen(false);
+    setSpeedMenuOpen(false);
+    setCapturePreview(null);
+    clearHold();
+    pressed.current.clear();
+    lastProgressSaveAt.current = 0;
+    lastProgressValue.current = -1;
+  }, [itemId, clearHold]);
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const v = videoRef.current;
@@ -363,6 +392,9 @@ export function VideoPlayer({
 
       const key = eventToShortcut(e);
       const sc = shortcuts;
+      const editing = e.target instanceof HTMLElement &&
+        e.target.closest("input, select, textarea, [contenteditable='true']");
+      if (editing && !matchBinding(key, sc.close) && !matchBinding(key, sc.playbackSettings)) return;
 
       if (pressed.current.has(key)) {
         if (matchBinding(key, sc.seekBack) || matchBinding(key, sc.seekForward)) {
@@ -374,10 +406,30 @@ export function VideoPlayer({
 
       if (matchBinding(key, sc.close)) {
         e.preventDefault();
+        if (speedMenuOpen) {
+          setSpeedMenuOpen(false);
+          return;
+        }
+        if (playbackSettingsOpen) {
+          setPlaybackSettingsOpen(false);
+          return;
+        }
+        if (capturePreview) {
+          if (!captureBusy) setCapturePreview(null);
+          return;
+        }
         saveProgress(true);
         onClose();
         return;
       }
+
+      if (matchBinding(key, sc.playbackSettings)) {
+        e.preventDefault();
+        if (!capturePreview) setPlaybackSettingsOpen((open) => !open);
+        return;
+      }
+
+      if (capturePreview) return;
 
       if (matchBinding(key, sc.playPause)) {
         e.preventDefault();
@@ -468,7 +520,7 @@ export function VideoPlayer({
       const sc = shortcuts;
       const v = videoRef.current;
 
-      if (matchBinding(key, sc.seekForward) || matchBinding(key, sc.seekBack)) {
+      if (holdKey.current === key && (matchBinding(key, sc.seekForward) || matchBinding(key, sc.seekBack))) {
         e.preventDefault();
         const mode = holdMode.current;
         const wasHoldingThis = holdKey.current === key;
@@ -524,6 +576,10 @@ export function VideoPlayer({
     captureFrame,
     flash,
     clearHold,
+    playbackSettingsOpen,
+    speedMenuOpen,
+    capturePreview,
+    captureBusy,
   ]);
 
   useEffect(() => {
@@ -554,19 +610,19 @@ export function VideoPlayer({
     return () => v.removeEventListener("timeupdate", onTime);
   }, [ab]);
 
-  // Autoplay when switching items；从已存进度续播
+  // Only source changes initialize playback; layout/fullscreen updates must not reload it.
   useEffect(() => {
     const v = videoRef.current;
-    if (!v) return;
+    if (!v || readyItemId !== itemId) return;
     setDecodeErrorAt(null);
     setCurrentTime(0);
     setDuration(0);
     setBuffered(0);
-    const fromPlaylist = playlist.find((p) => p.id === itemId)?.progress;
+    const fromPlaylist = resumeContext.current.playlist.find((p) => p.id === itemId)?.progress;
     const resume =
       typeof fromPlaylist === "number"
         ? fromPlaylist
-        : initialProgress;
+        : resumeContext.current.initialProgress;
     const applyResume = () => {
       if (v.duration && resume > 0.01 && resume < 0.98) {
         v.currentTime = v.duration * resume;
@@ -578,7 +634,7 @@ export function VideoPlayer({
     v.load();
     v.play().catch(() => {});
     return () => v.removeEventListener("loadedmetadata", onMeta);
-  }, [itemId, initialProgress, playlist]);
+  }, [itemId, readyItemId]);
 
   useEffect(() => {
     const v = videoRef.current;
@@ -646,11 +702,15 @@ export function VideoPlayer({
     `${bindingDisplay(shortcuts.prevVideo)}/${bindingDisplay(shortcuts.nextVideo)} 上下集`,
   ].join(" · ");
 
-  const chromeVisible = !fullscreen || controlsVisible || !!capturePreview;
+  const chromeVisible = !fullscreen || controlsVisible || !!capturePreview || playbackSettingsOpen || speedMenuOpen;
 
   return (
     <FullscreenPortal
       className="fixed inset-0 z-[300] flex flex-col bg-black animate-viewer-in"
+      onPointerDown={(e) => {
+        if (!(e.target as HTMLElement).closest("[data-playback-settings]")) setPlaybackSettingsOpen(false);
+        if (!(e.target as HTMLElement).closest("[data-speed-menu]")) setSpeedMenuOpen(false);
+      }}
       onMouseMove={(e) => {
         if (!fullscreen) return;
         if (window.innerHeight - e.clientY <= 170) revealControls();
@@ -867,7 +927,7 @@ export function VideoPlayer({
           </div>
         </div>
 
-        <div className="flex items-center justify-center gap-3">
+        <div className="flex flex-wrap items-center justify-center gap-3">
           <button
             onClick={() => seekBy(-shortcuts.seekStep)}
             className="rounded-full bg-white/10 p-3 hover:bg-white/20"
@@ -910,6 +970,42 @@ export function VideoPlayer({
           >
             <PlaybackModeIcon mode={playbackMode} className="h-5 w-5" />
           </button>
+          <div data-speed-menu className="relative">
+            <button
+              type="button"
+              aria-label="播放倍速"
+              aria-haspopup="menu"
+              aria-expanded={speedMenuOpen}
+              title="播放倍速"
+              disabled={readyItemId !== itemId}
+              onClick={() => setSpeedMenuOpen((open) => !open)}
+              className="flex h-11 w-28 items-center justify-center gap-1.5 rounded-lg bg-white/10 text-sm text-white hover:bg-white/20 disabled:opacity-50"
+            >
+              <Gauge className="h-4 w-4 shrink-0" />
+              <span className="w-10 tabular-nums">{preferences.playbackRate}×</span>
+              <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+            </button>
+            {speedMenuOpen && (
+              <div role="menu" aria-label="播放倍速选项" className="absolute bottom-full left-0 mb-2 w-28 overflow-hidden rounded-lg border border-white/20 bg-[#1a1f20] p-1 text-white shadow-xl">
+                {PLAYBACK_RATES.map((rate) => (
+                  <button key={rate} type="button" role="menuitemradio" aria-checked={preferences.playbackRate === rate} onClick={() => { changePreferences({ playbackRate: rate }); setSpeedMenuOpen(false); }} className="flex h-9 w-full items-center justify-between rounded px-2 text-sm text-white hover:bg-white/15 focus:bg-white/15 focus:outline-none">
+                    {rate}×{preferences.playbackRate === rate && <Check className="h-4 w-4" />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <button
+            data-playback-settings
+            type="button"
+            onClick={() => setPlaybackSettingsOpen((open) => !open)}
+            aria-label="当前视频播放设置"
+            aria-expanded={playbackSettingsOpen}
+            title={`当前视频播放设置 (${bindingDisplay(shortcuts.playbackSettings)})`}
+            className={`rounded-full p-3 hover:bg-white/20 ${playbackSettingsOpen ? "bg-[var(--accent)]" : "bg-white/10"}`}
+          >
+            <SlidersHorizontal className="h-5 w-5" />
+          </button>
           {(ab.a != null || ab.b != null) && (
             <span className="ml-2 text-xs text-white/60">
               A-B: {ab.a?.toFixed(1) ?? "—"} → {ab.b?.toFixed(1) ?? "—"}
@@ -922,6 +1018,38 @@ export function VideoPlayer({
           )}
         </div>
       </div>
+
+      {playbackSettingsOpen && (
+        <section
+          data-playback-settings
+          role="dialog"
+          aria-label="当前视频播放设置"
+          className="absolute bottom-36 right-4 z-40 w-80 max-w-[calc(100%-2rem)] rounded-lg border border-white/15 bg-[#1a1f20]/95 p-4 text-white shadow-2xl backdrop-blur-md"
+        >
+          <div className="mb-4 flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <h2 className="text-sm font-medium">播放设置</h2>
+              <p className="mt-1 truncate text-xs text-white/50">{title}</p>
+            </div>
+            <button type="button" onClick={() => setPlaybackSettingsOpen(false)} title="关闭播放设置" aria-label="关闭播放设置" className="rounded p-1.5 hover:bg-white/10">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <label className="block">
+            <span className="mb-2 flex items-center gap-2 text-xs"><Volume2 className="h-4 w-4" />音量<output className="ml-auto w-12 text-right tabular-nums">{Math.round(preferences.volume * 100)}%</output></span>
+            <input type="range" aria-label="当前视频音量" min={0} max={1} step={0.01} value={preferences.volume} disabled={readyItemId !== itemId} onChange={(e) => changePreferences({ volume: Number(e.target.value) })} className="w-full accent-[var(--accent)]" />
+          </label>
+          <label className="mt-4 block">
+            <span className="mb-2 flex items-center gap-2 text-xs"><Gauge className="h-4 w-4" />速度<output className="ml-auto w-12 text-right tabular-nums">{preferences.playbackRate}×</output></span>
+            <input type="range" aria-label="当前视频速度" aria-valuetext={`${preferences.playbackRate}倍速`} min={0} max={PLAYBACK_RATES.length - 1} step={1} value={PLAYBACK_RATES.reduce((closest, rate, index) => Math.abs(rate - preferences.playbackRate) < Math.abs(PLAYBACK_RATES[closest] - preferences.playbackRate) ? index : closest, 0)} disabled={readyItemId !== itemId} onChange={(e) => changePreferences({ playbackRate: PLAYBACK_RATES[Number(e.target.value)] })} className="w-full accent-[var(--accent)]" />
+            <span className="mt-1 flex justify-between text-[11px] text-white/60">{PLAYBACK_RATES.map((rate) => <span key={rate}>{rate}×</span>)}</span>
+          </label>
+          <button type="button" disabled={readyItemId !== itemId} onClick={() => changePreferences(DEFAULT_VIDEO_PREFERENCES)} className="mt-4 flex items-center gap-2 rounded px-2 py-1.5 text-xs text-white/80 hover:bg-white/10 disabled:opacity-50"><RotateCcw className="h-3.5 w-3.5" />恢复默认</button>
+          <p className={`mt-3 text-right text-[11px] ${saveStatus === "error" ? "text-red-300" : "text-white/40"}`} role="status">
+            {{ loading: "读取中…", saving: "保存中…", saved: "已保存", error: "设置读取或保存失败" }[saveStatus]}
+          </p>
+        </section>
+      )}
 
       {orderedPlaylist.length > 0 && (
         <aside className="group/playlist absolute bottom-24 right-0 top-20 z-30 flex w-80 translate-x-[calc(100%-14px)] flex-col border-l-2 border-[var(--accent)] bg-[#111718]/95 text-white shadow-2xl backdrop-blur-xl transition-transform duration-200 hover:translate-x-0 focus-within:translate-x-0">
@@ -998,8 +1126,8 @@ export function VideoPlayer({
       )}
 
       {capturePreview && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
-          <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-white/15 bg-[#1a1f20] shadow-2xl">
+        <div role="dialog" aria-modal="true" aria-label="截取当前帧" className="absolute inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
+          <div className="w-full max-w-lg overflow-hidden rounded-lg border border-white/15 bg-[#1a1f20] shadow-2xl">
             <div className="border-b border-white/10 px-4 py-3">
               <p className="text-sm font-medium text-white">截取当前帧</p>
               <p className="mt-0.5 text-xs text-white/50">选择保存方式</p>
@@ -1012,12 +1140,12 @@ export function VideoPlayer({
                 className="mx-auto max-h-[42vh] w-auto rounded-lg object-contain"
               />
             </div>
-            <div className="flex flex-col gap-2 p-4 sm:flex-row">
+            <div className="grid grid-cols-1 gap-2 p-4 sm:grid-cols-3">
               <button
                 type="button"
                 disabled={captureBusy}
                 onClick={saveCaptureLocal}
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-white/10 px-3 py-2.5 text-sm text-white hover:bg-white/15 disabled:opacity-50"
+                className="flex items-center justify-center gap-2 rounded-lg bg-white/10 px-2 py-2.5 text-sm text-white hover:bg-white/15 disabled:opacity-50"
               >
                 <Download className="h-4 w-4" />
                 保存到本地
@@ -1025,11 +1153,20 @@ export function VideoPlayer({
               <button
                 type="button"
                 disabled={captureBusy}
-                onClick={saveCaptureAsThumb}
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[var(--accent)] px-3 py-2.5 text-sm text-white hover:brightness-110 disabled:opacity-50"
+                onClick={() => saveCaptureAsThumb("item")}
+                className="flex items-center justify-center gap-2 rounded-lg bg-[var(--accent)] px-2 py-2.5 text-sm text-white hover:brightness-110 disabled:opacity-50"
               >
                 <ImagePlus className="h-4 w-4" />
-                设为详情页缩略图
+                视频封面
+              </button>
+              <button
+                type="button"
+                disabled={captureBusy}
+                onClick={() => saveCaptureAsThumb("series")}
+                className="flex items-center justify-center gap-2 rounded-lg bg-white/10 px-2 py-2.5 text-sm text-white hover:bg-white/15 disabled:opacity-50"
+              >
+                <FolderOpen className="h-4 w-4" />
+                文件夹封面
               </button>
             </div>
             <div className="border-t border-white/10 px-4 py-2.5 text-right">

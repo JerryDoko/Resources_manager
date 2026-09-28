@@ -27,8 +27,10 @@ function SeriesThumb({ series, mediaType }: { series: SeriesCard; mediaType: str
   const [failed, setFailed] = useState(false);
   const hues = ["#1f6f6a", "#2d4a6f", "#6f4a2d", "#4a6f3a", "#6f2d4a", "#3a4a6f"];
   const hue = hues[(series.title.charCodeAt(0) || 0) % hues.length];
-  const src = `/api/thumbnails/${series.id}`;
+  const src = `/api/thumbnails/${series.id}?t=${series.updatedAt}`;
   const showsProgress = ["video", "photo", "manga", "webtoon"].includes(mediaType);
+
+  useEffect(() => setFailed(false), [series.id, series.updatedAt]);
 
   return (
     <div
@@ -107,9 +109,9 @@ export function SeriesGrid() {
   const onGridMouseDown = useCallback(
     (e: React.MouseEvent) => {
       if (e.button !== 0) return;
+      didDrag.current = false;
       // 点在卡片上不启动框选
       if ((e.target as HTMLElement).closest("[data-series-card]")) return;
-      didDrag.current = false;
       dragStart.current = {
         x: e.clientX,
         y: e.clientY,

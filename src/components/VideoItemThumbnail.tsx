@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Play } from "lucide-react";
 
 interface Props {
@@ -76,6 +76,12 @@ export function VideoItemThumbnail({ itemId, title, updatedAt }: Props) {
   const [src, setSrc] = useState(`/api/thumbnails/item/${itemId}?t=${updatedAt}`);
   const [failed, setFailed] = useState(false);
   const attemptedBrowserCapture = useRef(false);
+
+  useEffect(() => {
+    setSrc(`/api/thumbnails/item/${itemId}?t=${updatedAt}`);
+    setFailed(false);
+    attemptedBrowserCapture.current = false;
+  }, [itemId, updatedAt]);
 
   const recover = useCallback(async () => {
     if (attemptedBrowserCapture.current) {

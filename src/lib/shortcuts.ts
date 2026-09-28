@@ -10,6 +10,7 @@ export type ShortcutAction =
   | "markB"
   | "toggleSubs"
   | "capture"
+  | "playbackSettings"
   | "close";
 
 /** 一个行为可绑定多个键位 */
@@ -27,6 +28,7 @@ export interface VideoShortcuts {
   markB: KeyBinding;
   toggleSubs: KeyBinding;
   capture: KeyBinding;
+  playbackSettings: KeyBinding;
   close: KeyBinding;
   /** 点按左右键跳转秒数 */
   seekStep: number;
@@ -50,6 +52,7 @@ export const DEFAULT_VIDEO_SHORTCUTS: VideoShortcuts = {
   markB: ["b"],
   toggleSubs: ["v"],
   capture: ["c"],
+  playbackSettings: ["k"],
   close: ["Escape"],
   seekStep: 5,
   longPressMs: 200,
@@ -69,6 +72,7 @@ export const SHORTCUT_LABELS: Record<ShortcutAction, string> = {
   markB: "标记 B 点",
   toggleSubs: "开关字幕",
   capture: "截取当前帧",
+  playbackSettings: "当前视频播放设置",
   close: "关闭播放器",
 };
 
@@ -84,6 +88,7 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
   "markB",
   "toggleSubs",
   "capture",
+  "playbackSettings",
   "close",
 ];
 

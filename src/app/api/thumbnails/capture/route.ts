@@ -19,13 +19,14 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const itemId = String(body.itemId || "");
     const dataUrl = String(body.dataUrl || "");
-    const targets = (body.targets || []) as string[];
+    const targets: unknown = body.targets;
 
     if (!itemId || !dataUrl.startsWith("data:image/")) {
       return NextResponse.json({ error: "参数无效" }, { status: 400 });
     }
-    if (!targets.length) {
-      return NextResponse.json({ error: "未指定目标" }, { status: 400 });
+    if (!Array.isArray(targets) || !targets.length ||
+        !targets.every((target) => target === "item" || target === "series")) {
+      return NextResponse.json({ error: "封面目标无效" }, { status: 400 });
     }
 
     const db = getDb();

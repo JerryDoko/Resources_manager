@@ -6,7 +6,7 @@ import { VideoPlayer } from "@/components/viewers/VideoPlayer";
 
 /** 多选连续打开：相册/视频列表拼成一条播放队列 */
 export function BatchViewer() {
-  const { batchSession, setBatchCurrentId, closeBatchSession } = useLibrary();
+  const { batchSession, setBatchCurrentId, closeBatchSession, refresh } = useLibrary();
   if (!batchSession || batchSession.items.length === 0) return null;
 
   const current = batchSession.items.find((i) => i.id === batchSession.currentId);
@@ -43,6 +43,7 @@ export function BatchViewer() {
       playlistKey={`batch:${batchSession.items.length}:${batchSession.items[0]?.id}:${batchSession.items.at(-1)?.id}`}
       onChangeItem={setBatchCurrentId}
       onClose={closeBatchSession}
+      onThumbnailUpdated={refresh}
     />
   );
 }

@@ -573,8 +573,8 @@ export function SeriesDetailView({
   const onListMouseDown = useCallback(
     (e: React.MouseEvent) => {
       if (e.button !== 0) return;
-      if ((e.target as HTMLElement).closest("[data-item-row]")) return;
       didDrag.current = false;
+      if ((e.target as HTMLElement).closest("[data-item-row]")) return;
       dragStart.current = {
         x: e.clientX,
         y: e.clientY,
