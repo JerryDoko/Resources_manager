@@ -4,13 +4,17 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   windows:
     # node-gyp 10 does not yet recognize the Visual Studio 2026 image.
     runs-on: windows-2022
-    timeout-minutes: 45
+    timeout-minutes: 60
+    env:
+      PYTHONUTF8: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,14 +28,41 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Set up Python for offline runtime assembly
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.13.7
+          architecture: x64
+
+      - name: Prepare offline Kokoro runtime
+        timeout-minutes: 10
+        shell: pwsh
+        run: ./scripts/prepare-windows-kokoro.ps1
+
+      - name: Test profiles and novel integration with real Kokoro
+        shell: pwsh
+        run: |
+          npm run test:profiles
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $tests = @(Get-ChildItem tests/novel/*.test.ts | ForEach-Object { $_.FullName })
+          node --import tsx --test @tests
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Build Windows packages
         run: npm run release:win
 
       - name: Verify packaged runtime
         shell: pwsh
         run: |
-          $node = Join-Path $PWD "dist-pack/node/node.exe"
+          $node = Join-Path $PWD "release/win-unpacked/resources/node/node.exe"
+          $python = Join-Path $PWD "release/win-unpacked/resources/kokoro/bundle/win32-x64/python/python.exe"
+          Push-Location release/win-unpacked/resources/server
           & $node -e 'const Database=require("better-sqlite3");const db=new Database(":memory:");db.exec("create table ok(id integer)");db.close();console.log("SQLite runtime OK")'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Pop-Location
+          & $python -c 'import sherpa_onnx,numpy,opencc; print("Packaged Kokoro imports OK")'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem release/*.exe | Get-FileHash -Algorithm SHA256 | Format-List
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
@@ -39,9 +70,5 @@ jobs:
           name: Resources-Manager-${{ github.sha }}-windows-x64
           path: release/*.exe
           if-no-files-found: error
-
-      - name: Upload to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: release/*.exe
+          retention-days: 14
+          compression-level: 0

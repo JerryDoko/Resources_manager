@@ -53,3 +53,7 @@ next-env.d.ts
 
 # embedded browser profile
 .lm-browser-profile/
+runtime/kokoro/bundle/
+runtime/kokoro/downloads/
+**/__pycache__/
+test-results/

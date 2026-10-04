@@ -47,6 +47,7 @@ function walkDir(dir: string, maxDepth = 32): string[] {
     const realDir = getRealPath(current.dir);
     if (!realDir || visitedDirs.has(realDir)) continue;
     visitedDirs.add(realDir);
+    if (fs.existsSync(path.join(realDir, ".rm-novel-internal"))) continue;
 
     let entries: fs.Dirent[];
     try {

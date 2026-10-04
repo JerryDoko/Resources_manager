@@ -80,7 +80,7 @@ export function ProfileSwitcher({ open, onClose }: Props) {
         return;
       }
       if (data.reload) {
-        window.location.replace(`/?profile=${encodeURIComponent(String(body.id || ""))}`);
+        window.location.replace(`/?profile=${encodeURIComponent(data.registry?.activeId || String(body.id || ""))}`);
         return;
       }
       if (data.registry) setReg(data.registry);

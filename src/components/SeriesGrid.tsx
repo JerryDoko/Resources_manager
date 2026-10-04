@@ -306,7 +306,7 @@ export function SeriesGrid() {
                 )}
                 <p className="truncate text-xs leading-4 text-[var(--ink-muted)]">
                   {s.author || "未知作者"} · {s.itemCount}{" "}
-                  {mediaType === "video" || mediaType === "photo"
+                  {mediaType === "novel" ? "本" : mediaType === "video" || mediaType === "photo"
                       ? "个"
                       : "话"}
                 </p>

@@ -10,6 +10,7 @@ import {
 import { useLibrary } from "@/lib/store";
 import { MEDIA_TYPE_LABELS } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { NovelImportPanel } from "./NovelImportPanel";
 
 interface Folder {
   id: string;
@@ -262,6 +263,7 @@ export function ImportView() {
         </button>
       </div>
 
+      {mediaType === "novel" && <NovelImportPanel inline />}
       {showAdd && (
         <section className="glass rounded-2xl p-4">
           <div className="flex flex-col gap-2">

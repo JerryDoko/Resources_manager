@@ -8,6 +8,7 @@ const http = require("http");
 const path = require("path");
 const fs = require("fs");
 const net = require("net");
+const { mergeLegacyProfileData } = require("./profile-migration.cjs");
 
 const isPackaged = app.isPackaged;
 const appDataRoot = app.getPath("appData");
@@ -112,71 +113,6 @@ function dataDir() {
   return path.join(app.getPath("userData"), "data");
 }
 
-function readProfilesRegistry(root) {
-  const file = path.join(root, "profiles.json");
-  if (!fs.existsSync(file)) return null;
-  const registry = JSON.parse(fs.readFileSync(file, "utf8"));
-  if (!Array.isArray(registry.profiles)) return null;
-  return registry;
-}
-
-function mergeLegacyProfileData() {
-  const destination = dataDir();
-  const legacyRoots = [
-    path.join(appDataRoot, "Electron", "data"),
-    path.join(appDataRoot, "Resources Manager", "data"),
-  ];
-
-  fs.mkdirSync(destination, { recursive: true });
-  for (const source of legacyRoots) {
-    if (path.resolve(source) === path.resolve(destination)) continue;
-    let sourceRegistry;
-    try {
-      sourceRegistry = readProfilesRegistry(source);
-    } catch (error) {
-      console.warn(`[rm] 无法读取旧配置 ${source}`, error);
-      continue;
-    }
-    if (!sourceRegistry) continue;
-
-    const destinationRegistry = readProfilesRegistry(destination);
-    if (!destinationRegistry) {
-      fs.cpSync(source, destination, { recursive: true, force: false });
-      console.log(`[rm] 已迁移旧数据 → ${destination}`);
-      continue;
-    }
-
-    const existingIds = new Set(destinationRegistry.profiles.map((profile) => profile.id));
-    let changed = false;
-    for (const profile of sourceRegistry.profiles) {
-      if (!profile?.id || !/^[a-zA-Z0-9_-]+$/.test(profile.id) || existingIds.has(profile.id)) {
-        continue;
-      }
-      const sourceProfileDir = path.join(source, "profiles", profile.id);
-      const destinationProfileDir = path.join(destination, "profiles", profile.id);
-      if (!fs.existsSync(sourceProfileDir)) continue;
-
-      fs.mkdirSync(path.dirname(destinationProfileDir), { recursive: true });
-      fs.cpSync(sourceProfileDir, destinationProfileDir, {
-        recursive: true,
-        force: false,
-      });
-      destinationRegistry.profiles.push(profile);
-      existingIds.add(profile.id);
-      changed = true;
-      console.log(`[rm] 已导入旧配置：${profile.name || profile.id}`);
-    }
-
-    if (changed) {
-      fs.writeFileSync(
-        path.join(destination, "profiles.json"),
-        JSON.stringify(destinationRegistry, null, 2),
-        "utf8"
-      );
-    }
-  }
-}
-
 function applyDefaultProfileAtLaunch() {
   const file = path.join(dataDir(), "profiles.json");
   try {
@@ -214,6 +150,8 @@ function startPackagedServer() {
     HOSTNAME: "127.0.0.1",
     BROWSER: "none",
     RESOURCES_MANAGER_DATA: dataDir(),
+    RM_KOKORO_ROOT: path.join(process.resourcesPath, "kokoro"),
+    RM_KOKORO_INSTALL_ROOT: path.join(app.getPath("userData"), "kokoro"),
     NODE_ENV: "production",
   };
 
@@ -266,6 +204,8 @@ function startDevServer() {
       PORT: String(PORT),
       BROWSER: "none",
       RESOURCES_MANAGER_DATA: dataDir(),
+      RM_KOKORO_ROOT: path.join(ROOT, "runtime", "kokoro"),
+      RM_KOKORO_INSTALL_ROOT: path.join(app.getPath("userData"), "kokoro"),
     },
     stdio: "inherit",
     shell: process.platform === "win32",
@@ -364,7 +304,7 @@ function createWindow() {
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     try {
-      const u = new URL(url);
+      const u = new globalThis.URL(url);
       if (
         u.origin === `http://127.0.0.1:${PORT}` ||
         u.origin === `http://localhost:${PORT}`
@@ -372,9 +312,10 @@ function createWindow() {
         return {
           action: "allow",
           overrideBrowserWindowOptions: {
-            width: 1100,
-            height: 760,
+            width: u.pathname === "/novel-floating" ? 460 : 1100,
+            height: u.pathname === "/novel-floating" ? 240 : 760,
             backgroundColor: "#00000000",
+            ...(u.pathname === "/novel-floating" ? { alwaysOnTop: true, frame: false, minWidth: 380, minHeight: 200, resizable: true, title: "听书播放器", backgroundColor: "#fafbf9" } : {}),
             webPreferences: {
               nodeIntegration: false,
               contextIsolation: true,
@@ -389,6 +330,11 @@ function createWindow() {
     shell.openExternal(url);
     return { action: "deny" };
   });
+  win.webContents.on("did-create-window", (child) => {
+    const closeChild = () => { if (!child.isDestroyed()) child.close(); };
+    win.once("closed", closeChild);
+    child.once("closed", () => win.removeListener("closed", closeChild));
+  });
 
   return win;
 }
@@ -400,6 +346,10 @@ ipcMain.handle("rm:choose-folder", async (_event, prompt) => {
     properties: ["openDirectory", "createDirectory"],
   });
   return result.canceled ? null : result.filePaths[0] || null;
+});
+ipcMain.handle("rm:choose-novel", async () => {
+  const result=await dialog.showOpenDialog(mainWindow || undefined,{title:"选择本地小说",properties:["openFile"],filters:[{name:"小说",extensions:["txt","epub"]}]});
+  return result.canceled?null:result.filePaths[0]||null;
 });
 ipcMain.handle("rm:reveal-item", (_event, targetPath) => {
   if (typeof targetPath !== "string" || !path.isAbsolute(targetPath)) return false;
@@ -488,7 +438,10 @@ app.whenReady().then(async () => {
 
   try {
     fs.mkdirSync(dataDir(), { recursive: true });
-    mergeLegacyProfileData();
+    if (!process.env.RESOURCES_MANAGER_USER_DATA) mergeLegacyProfileData(dataDir(), [
+      path.join(appDataRoot, "Electron", "data"),
+      path.join(appDataRoot, "Resources Manager", "data"),
+    ]);
     applyDefaultProfileAtLaunch();
   } catch {
     /* ignore */

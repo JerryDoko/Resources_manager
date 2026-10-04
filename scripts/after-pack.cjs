@@ -18,6 +18,16 @@ exports.default = async function afterPack(context) {
   const nodeSrc = path.join(root, "dist-pack", "node");
   const serverDest = path.join(resources, "server");
   const nodeDest = path.join(resources, "node");
+  const arch = context.arch === 3 ? "arm64" : "x64";
+  const target = `${context.electronPlatformName}-${arch}`;
+  if(context.electronPlatformName !== process.platform || arch !== process.arch) throw new Error("必须在目标平台准备 Node/SQLite 并打包，禁止复用另一平台的 dist-pack");
+  const kokoro = path.join(root,"runtime/kokoro");
+  if(!fs.existsSync(path.join(kokoro,"bundle",target,"manifest.json"))) throw new Error(`缺少 ${target} Kokoro 声音包，请先运行 prepare-kokoro`);
+  const kokoroDest=path.join(resources,"kokoro");
+  fs.mkdirSync(kokoroDest,{recursive:true});
+  for(const file of ["kokoro_worker.py","narration.py","NOTICE.md","requirements.txt"]) fs.copyFileSync(path.join(kokoro,file),path.join(kokoroDest,file));
+  fs.cpSync(path.join(kokoro,"bundle",target),path.join(kokoroDest,"bundle",target),{recursive:true,verbatimSymlinks:true});
+  if(fs.existsSync(path.join(kokoro,"manifests")))fs.cpSync(path.join(kokoro,"manifests"),path.join(kokoroDest,"manifests"),{recursive:true});
 
   if (!fs.existsSync(serverSrc)) {
     throw new Error(`afterPack: 缺少 ${serverSrc}，请先 npm run pack:prepare`);
@@ -27,12 +37,12 @@ exports.default = async function afterPack(context) {
   }
 
   fs.rmSync(serverDest, { recursive: true, force: true });
-  fs.cpSync(serverSrc, serverDest, { recursive: true });
+  fs.cpSync(serverSrc, serverDest, { recursive: true, verbatimSymlinks: true });
   console.log(`[afterPack] 已拷贝 server → ${serverDest}`);
 
   if (fs.existsSync(nodeSrc)) {
     fs.rmSync(nodeDest, { recursive: true, force: true });
-    fs.cpSync(nodeSrc, nodeDest, { recursive: true });
+    fs.cpSync(nodeSrc, nodeDest, { recursive: true, verbatimSymlinks: true });
     const bin =
       context.electronPlatformName === "win32"
         ? path.join(nodeDest, "node.exe")

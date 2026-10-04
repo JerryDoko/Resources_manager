@@ -15,6 +15,7 @@ import {
 import { useLibrary } from "@/lib/store";
 import type { SortBy } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { NovelImportPanel } from "./NovelImportPanel";
 
 const SORTS: { value: SortBy; label: string }[] = [
   { value: "title", label: "名称" },
@@ -106,7 +107,7 @@ export function Toolbar() {
   };
 
   const resetProgress = async () => {
-    if (mediaType !== "video" || !selectedOrdered.length) return;
+    if (!["video","novel"].includes(mediaType) || !selectedOrdered.length) return;
     if (!confirm(`将重置已选 ${selectedOrdered.length} 个系列的观看进度？`)) return;
     setBusy(true);
     try {
@@ -155,6 +156,7 @@ export function Toolbar() {
   return (
     <div className="mx-auto max-w-[1600px] space-y-3 px-5 py-4">
       <div className="flex flex-wrap items-center gap-3">
+        {mediaType === "novel" && <NovelImportPanel />}
         {searchOpen ? (
           <div className="relative min-w-[220px] flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ink-faint)]" />
@@ -233,7 +235,7 @@ export function Toolbar() {
                 连续打开
               </button>
             )}
-            {mediaType === "video" && (
+            {(mediaType === "video" || mediaType === "novel") && (
               <button
                 disabled={busy}
                 onClick={resetProgress}

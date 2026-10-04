@@ -6,6 +6,8 @@ import { v4 as uuid } from "uuid";
 import { getDb, getSqlite, schema } from "@/lib/db";
 import type { MediaType, SortBy, TagMatchMode, AppSettings } from "@/lib/types";
 import { DEFAULT_VIDEO_SHORTCUTS } from "@/lib/shortcuts";
+import { revokeNovelSessions } from "./novel/sessions";
+import { getActiveProfileId, getProfileDataDir } from "./profiles";
 
 export function listSeries(opts: {
   mediaType?: MediaType;
@@ -192,12 +194,14 @@ export function updateSeries(
 }
 
 export function deleteSeries(id: string) {
+  revokeNovelSessions(getActiveProfileId());
   const db = getDb();
   db.delete(schema.series).where(eq(schema.series.id, id)).run();
 }
 
 /** 仅从库中移除系列索引，不删除磁盘文件 */
 export function deleteSeriesMany(ids: string[]) {
+  revokeNovelSessions(getActiveProfileId());
   const db = getDb();
   let removed = 0;
   for (const id of ids) {
@@ -397,10 +401,13 @@ export function updateItemRating(id: string, rating: number) {
 
 /** 批量重置系列内条目进度（及系列平均进度） */
 export function resetSeriesProgress(seriesIds: string[]) {
+  revokeNovelSessions(getActiveProfileId());
   const db = getDb();
   const now = Date.now();
   let items = 0;
   for (const seriesId of seriesIds) {
+    getSqlite().prepare("DELETE FROM novel_reading_state WHERE item_id IN (SELECT id FROM media_items WHERE series_id=?)").run(seriesId);
+    getSqlite().prepare("DELETE FROM novel_chapter_progress WHERE item_id IN (SELECT id FROM media_items WHERE series_id=?)").run(seriesId);
     const r = db
       .update(schema.mediaItems)
       .set({ progress: 0, updatedAt: now })
@@ -706,10 +713,14 @@ export function getLibraryStats() {
 export function exportBackup() {
   const db = getDb();
   return {
-    version: 1,
+    version: 2,
     exportedAt: Date.now(),
     series: db.select().from(schema.series).all(),
     mediaItems: db.select().from(schema.mediaItems).all(),
+    novelSources: db.select().from(schema.novelSources).all(),
+    novelChapters: db.select().from(schema.novelChapters).all(),
+    novelReadingState: db.select().from(schema.novelReadingState).all(),
+    novelChapterProgress: db.select().from(schema.novelChapterProgress).all(),
     tags: db.select().from(schema.tags).all(),
     seriesTags: getSqlite().prepare("SELECT * FROM series_tags").all(),
     folders: db.select().from(schema.libraryFolders).all(),
@@ -722,6 +733,7 @@ export function exportBackup() {
 }
 
 export function importBackup(data: ReturnType<typeof exportBackup>) {
+  revokeNovelSessions(getActiveProfileId());
   const sqlite = getSqlite();
   const tx = sqlite.transaction(() => {
     sqlite.exec(`
@@ -737,7 +749,7 @@ export function importBackup(data: ReturnType<typeof exportBackup>) {
       INSERT INTO series (id, title, author, media_type, rating, thumbnail_path, item_count, progress, capture_date, latitude, longitude, created_at, updated_at, manual_group)
       VALUES (@id, @title, @author, @mediaType, @rating, @thumbnailPath, @itemCount, @progress, @captureDate, @latitude, @longitude, @createdAt, @updatedAt, @manualGroup)
     `);
-    for (const s of data.series) insertSeries.run({ ...s, manualGroup: (s as { manualGroup?: boolean }).manualGroup ?? false });
+    for (const s of data.series) insertSeries.run({ ...s, manualGroup: Number((s as { manualGroup?: boolean }).manualGroup ?? false) });
 
     const insertItem = sqlite.prepare(`
       INSERT INTO media_items (id, series_id, title, path, media_type, sort_order, duration, page_count, file_size, capture_date, latitude, longitude, progress, rating, thumbnail_path, metadata, created_at, updated_at)
@@ -766,7 +778,8 @@ export function importBackup(data: ReturnType<typeof exportBackup>) {
     for (const f of data.folders) {
       insertFolder.run({
         ...f,
-        recursive: (f as { recursive?: boolean }).recursive ?? true,
+        enabled: Number(f.enabled),
+        recursive: Number((f as { recursive?: boolean }).recursive ?? true),
       });
     }
 
@@ -774,6 +787,26 @@ export function importBackup(data: ReturnType<typeof exportBackup>) {
       `INSERT INTO settings (key, value) VALUES (@key, @value)`
     );
     for (const s of data.settings) insertSetting.run(s);
+    const source = sqlite.prepare("INSERT INTO novel_sources VALUES (@itemId,@sourceKey,@kind,@origin)");
+    for(const row of data.novelSources || []) source.run(row);
+    const chapter = sqlite.prepare("INSERT INTO novel_chapters VALUES (@id,@itemId,@ordinal,@title,@text,@digest,@sourceUrl,@nextUrl)");
+    for(const row of data.novelChapters || []) chapter.run(row);
+    const state = sqlite.prepare("INSERT INTO novel_reading_state VALUES (@itemId,@chapterId,@chunkId,@offset,@digest,@seconds,@chunkVersion,@updatedAt)");
+    for(const row of data.novelReadingState || []) state.run(row);
+    const chapterProgress=sqlite.prepare("INSERT INTO novel_chapter_progress VALUES (@itemId,@chapterId,@digest,@progress,@offset,@seconds,@updatedAt)");
+    for(const row of data.novelChapterProgress || []) chapterProgress.run(row);
   });
   tx();
+  // Recreate managed text files at this workspace, never write paths from a backup.
+  for(const source of data.novelSources || []) {
+    if(!/^[\w-]+$/.test(source.itemId)) continue;
+    const chapters=(data.novelChapters || []).filter(c=>c.itemId===source.itemId).sort((a,b)=>a.ordinal-b.ordinal);
+    const dir=path.join(getProfileDataDir(getActiveProfileId()),"novels",source.itemId);
+    fs.mkdirSync(path.join(dir,"chapters"),{recursive:true});
+    fs.writeFileSync(path.join(dir,"chapters/.rm-novel-internal"),"1");
+    for(const ch of chapters) if(/^[\w-]+$/.test(ch.id)) fs.writeFileSync(path.join(dir,"chapters",`${ch.id}.txt`),ch.text);
+    const file=path.join(dir,"collection.txt");
+    fs.writeFileSync(file,chapters.map(c=>`${c.title}\n\n${c.text}`).join("\n\n"));
+    sqlite.prepare("UPDATE media_items SET path=? WHERE id=?").run(file,source.itemId);
+  }
 }
