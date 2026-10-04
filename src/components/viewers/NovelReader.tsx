@@ -1,31 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   X,
   ChevronLeft,
   ChevronRight,
-  List,
-  BookOpen,
 } from "lucide-react";
-import { NOVEL_ENCODINGS, type NovelEncoding } from "@/lib/encoding-types";
+import { AudiobookReader } from "./AudiobookReader";
 import { FullscreenPortal } from "./FullscreenPortal";
 
 interface Props {
   itemId: string;
   title: string;
   onClose: () => void;
+  chapterId?: string;
 }
 
 type Format = "txt" | "epub" | "pdf" | "unknown";
 
-interface EpubChapter {
-  id: string;
-  title: string;
-  href: string;
-}
 
-export function NovelReader({ itemId, title, onClose }: Props) {
+export function NovelReader({ itemId, title, onClose, chapterId }: Props) {
   const [format, setFormat] = useState<Format | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -74,11 +68,8 @@ export function NovelReader({ itemId, title, onClose }: Props) {
     );
   }
 
-  if (format === "txt") {
-    return <TxtReader itemId={itemId} title={title} onClose={onClose} />;
-  }
-  if (format === "epub") {
-    return <EpubReader itemId={itemId} title={title} onClose={onClose} />;
+  if (format === "txt" || format === "epub") {
+    return <AudiobookReader itemId={itemId} title={title} onClose={onClose} chapterId={chapterId} />;
   }
   if (format === "pdf") {
     return <PdfReader itemId={itemId} title={title} onClose={onClose} />;
@@ -125,327 +116,6 @@ function Shell({
   );
 }
 
-function TxtReader({ itemId, title, onClose }: Props) {
-  const [text, setText] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [fontSize, setFontSize] = useState(18);
-  const [encoding, setEncoding] = useState<NovelEncoding | "auto">("auto");
-  const [detected, setDetected] = useState<string | null>(null);
-
-  const load = useCallback(
-    async (enc: NovelEncoding | "auto") => {
-      setLoading(true);
-      setError(null);
-      try {
-        const qs =
-          enc === "auto"
-            ? `/api/media/${itemId}?mode=text`
-            : `/api/media/${itemId}?mode=text&encoding=${enc}`;
-        const r = await fetch(qs, { signal: AbortSignal.timeout(30000) });
-        if (!r.ok) {
-          const err = await r.json().catch(() => null);
-          throw new Error(err?.error || "无法读取文本");
-        }
-        const detectedEnc = r.headers.get("X-Detected-Encoding");
-        if (detectedEnc) setDetected(detectedEnc);
-        setText(await r.text());
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "读取失败");
-      } finally {
-        setLoading(false);
-      }
-    },
-    [itemId]
-  );
-
-  useEffect(() => {
-    load(encoding);
-  }, [load, encoding]);
-
-  const label =
-    encoding === "auto"
-      ? `TXT · 自动 · ${detected || "检测中"}`
-      : `TXT · ${NOVEL_ENCODINGS.find((e) => e.id === encoding)?.label || encoding}`;
-
-  return (
-    <Shell
-      title={title}
-      subtitle={label}
-      onClose={onClose}
-      toolbar={
-        <>
-          <select
-            value={encoding}
-            onChange={(e) => setEncoding(e.target.value as NovelEncoding | "auto")}
-            className="max-w-[200px] rounded-lg border border-[#e5dfd2] bg-white px-2 py-1.5 text-xs"
-          >
-            <option value="auto">自动检测</option>
-            {NOVEL_ENCODINGS.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.label}
-              </option>
-            ))}
-          </select>
-          <FontButtons fontSize={fontSize} setFontSize={setFontSize} />
-        </>
-      }
-    >
-      <div className="flex-1 overflow-y-auto scrollbar-thin">
-        <article
-          className="mx-auto max-w-2xl px-6 py-10 leading-[1.9] text-[#2a2418]"
-          style={{ fontSize }}
-        >
-          {loading && <p className="animate-pulse-soft text-[#8a7f6a]">加载中…</p>}
-          {error && <p className="text-red-700">{error}</p>}
-          {!loading && !error && (
-            <pre className="whitespace-pre-wrap font-[inherit]">{text}</pre>
-          )}
-        </article>
-      </div>
-    </Shell>
-  );
-}
-
-function EpubReader({ itemId, title, onClose }: Props) {
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  const iframeCleanupRef = useRef<(() => void) | null>(null);
-  const switchCooldownRef = useRef(0);
-  const touchStartYRef = useRef<number | null>(null);
-  const [chapters, setChapters] = useState<EpubChapter[]>([]);
-  const [bookTitle, setBookTitle] = useState(title);
-  const [index, setIndex] = useState(0);
-  const [html, setHtml] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [showToc, setShowToc] = useState(true);
-  const [fontSize, setFontSize] = useState(18);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const r = await fetch(`/api/media/${itemId}?mode=epub`, {
-          signal: AbortSignal.timeout(30000),
-        });
-        const data = await r.json();
-        if (!r.ok) throw new Error(data.error || "EPUB 解析失败");
-        if (cancelled) return;
-        setChapters(data.chapters || []);
-        if (data.title) setBookTitle(data.title);
-        setIndex(0);
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "解析失败");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [itemId]);
-
-  useEffect(() => {
-    if (!chapters[index]) return;
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const href = encodeURIComponent(chapters[index].href);
-        const r = await fetch(
-          `/api/media/${itemId}?mode=epub-chapter&href=${href}`,
-          { signal: AbortSignal.timeout(30000) }
-        );
-        if (!r.ok) {
-          const err = await r.json().catch(() => null);
-          throw new Error(err?.error || "章节加载失败");
-        }
-        const content = await r.text();
-        if (!cancelled) setHtml(content);
-        // Save progress
-        fetch("/api/items", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "progress",
-            id: itemId,
-            progress: chapters.length ? (index + 1) / chapters.length : 0,
-          }),
-          signal: AbortSignal.timeout(10000),
-        }).catch(() => {});
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "加载失败");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [chapters, index, itemId]);
-
-  const switchChapter = useCallback(
-    (delta: -1 | 1) => {
-      if (Date.now() - switchCooldownRef.current < 650) return;
-      setIndex((i) => {
-        const next = Math.max(0, Math.min(chapters.length - 1, i + delta));
-        if (next !== i) switchCooldownRef.current = Date.now();
-        return next;
-      });
-    },
-    [chapters.length]
-  );
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "ArrowLeft") switchChapter(-1);
-      if (e.key === "ArrowRight") switchChapter(1);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [switchChapter]);
-
-  const attachIframeScrollHandlers = useCallback(() => {
-    iframeCleanupRef.current?.();
-    iframeCleanupRef.current = null;
-
-    const frame = iframeRef.current;
-    const win = frame?.contentWindow;
-    const doc = frame?.contentDocument;
-    if (!frame || !win || !doc) return;
-
-    win.scrollTo(0, 0);
-
-    const scrollEl = () => doc.scrollingElement || doc.documentElement;
-    const atTop = () => scrollEl().scrollTop <= 2;
-    const atBottom = () =>
-      scrollEl().scrollTop + win.innerHeight >= scrollEl().scrollHeight - 3;
-
-    const onWheel = (e: WheelEvent) => {
-      if (Math.abs(e.deltaY) < 4) return;
-      if (e.deltaY > 0 && atBottom()) {
-        e.preventDefault();
-        switchChapter(1);
-      } else if (e.deltaY < 0 && atTop()) {
-        e.preventDefault();
-        switchChapter(-1);
-      }
-    };
-
-    const onTouchStart = (e: TouchEvent) => {
-      touchStartYRef.current = e.touches[0]?.clientY ?? null;
-    };
-
-    const onTouchEnd = (e: TouchEvent) => {
-      const startY = touchStartYRef.current;
-      touchStartYRef.current = null;
-      if (startY == null) return;
-      const endY = e.changedTouches[0]?.clientY ?? startY;
-      const delta = startY - endY;
-      if (delta > 40 && atBottom()) switchChapter(1);
-      if (delta < -40 && atTop()) switchChapter(-1);
-    };
-
-    win.addEventListener("wheel", onWheel, { passive: false });
-    win.addEventListener("touchstart", onTouchStart, { passive: true });
-    win.addEventListener("touchend", onTouchEnd, { passive: true });
-    iframeCleanupRef.current = () => {
-      win.removeEventListener("wheel", onWheel);
-      win.removeEventListener("touchstart", onTouchStart);
-      win.removeEventListener("touchend", onTouchEnd);
-    };
-  }, [switchChapter]);
-
-  useEffect(() => {
-    return () => {
-      iframeCleanupRef.current?.();
-      iframeCleanupRef.current = null;
-    };
-  }, []);
-
-  const chapter = chapters[index];
-
-  return (
-    <Shell
-      title={bookTitle || title}
-      subtitle={
-        chapter
-          ? `EPUB · ${index + 1}/${chapters.length} · ${chapter.title}`
-          : "EPUB"
-      }
-      onClose={onClose}
-      toolbar={
-        <>
-          <button
-            onClick={() => setShowToc((v) => !v)}
-            className="flex items-center gap-1 rounded-lg border border-[#e5dfd2] px-2 py-1.5 text-xs"
-          >
-            <List className="h-3.5 w-3.5" />
-            目录
-          </button>
-          <button
-            disabled={index <= 0}
-            onClick={() => setIndex((i) => i - 1)}
-            className="rounded-lg border border-[#e5dfd2] p-1.5 disabled:opacity-40"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <button
-            disabled={index >= chapters.length - 1}
-            onClick={() => setIndex((i) => i + 1)}
-            className="rounded-lg border border-[#e5dfd2] p-1.5 disabled:opacity-40"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-          <FontButtons fontSize={fontSize} setFontSize={setFontSize} />
-        </>
-      }
-    >
-      {showToc && (
-        <aside className="w-64 shrink-0 overflow-y-auto border-r border-[#e5dfd2] bg-[#efeae0] scrollbar-thin">
-          <div className="px-3 py-2 text-xs font-medium text-[#8a7f6a]">目录</div>
-          <ul className="pb-4">
-            {chapters.map((ch, i) => (
-              <li key={ch.id + ch.href}>
-                <button
-                  onClick={() => {
-                    setIndex(i);
-                    if (window.innerWidth < 768) setShowToc(false);
-                  }}
-                  className={`w-full truncate px-3 py-2 text-left text-sm ${
-                    i === index
-                      ? "bg-[#1f6f6a] text-white"
-                      : "text-[#2a2418] hover:bg-black/5"
-                  }`}
-                >
-                  {ch.title}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </aside>
-      )}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        {loading && (
-          <p className="animate-pulse-soft p-8 text-[#8a7f6a]">加载章节…</p>
-        )}
-        {error && <p className="p-8 text-red-700">{error}</p>}
-        {!loading && !error && (
-          <iframe
-            ref={iframeRef}
-            title={chapter?.title || "chapter"}
-            srcDoc={html.replace(
-              /font-size:\s*[\d.]+rem/i,
-              `font-size:${(fontSize / 16).toFixed(3)}rem`
-            )}
-            onLoad={attachIframeScrollHandlers}
-            className="h-full w-full flex-1 border-0 bg-[#f4f0e6]"
-            sandbox="allow-same-origin"
-          />
-        )}
-      </div>
-    </Shell>
-  );
-}
 
 function PdfReader({ itemId, title, onClose }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -601,34 +271,5 @@ function PdfReader({ itemId, title, onClose }: Props) {
         <div ref={containerRef} className="px-4 py-6" />
       </div>
     </Shell>
-  );
-}
-
-function FontButtons({
-  fontSize,
-  setFontSize,
-}: {
-  fontSize: number;
-  setFontSize: (fn: (s: number) => number) => void;
-}) {
-  return (
-    <>
-      <button
-        onClick={() => setFontSize((s) => Math.max(14, s - 2))}
-        className="rounded-lg border border-[#e5dfd2] px-2 py-1 text-sm"
-      >
-        A-
-      </button>
-      <button
-        onClick={() => setFontSize((s) => Math.min(28, s + 2))}
-        className="rounded-lg border border-[#e5dfd2] px-2 py-1 text-sm"
-      >
-        A+
-      </button>
-      <span className="hidden text-[10px] text-[#8a7f6a] sm:inline">
-        <BookOpen className="mr-0.5 inline h-3 w-3" />
-        {fontSize}px
-      </span>
-    </>
   );
 }

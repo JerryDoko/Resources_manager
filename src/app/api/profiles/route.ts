@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { closeDb } from "@/lib/db";
+import { invalidateNovelWorkspace } from "@/lib/novel/sessions";
 import {
   createProfile,
   deleteProfile,
@@ -7,6 +8,7 @@ import {
   renameProfile,
   setActiveProfile,
   setDefaultProfile,
+  getActiveProfileId,
 } from "@/lib/profiles";
 
 export const runtime = "nodejs";
@@ -45,11 +47,13 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === "switch") {
+      invalidateNovelWorkspace(getActiveProfileId());
       const registry = setActiveProfile(body.id);
       return NextResponse.json({ registry, reload: true });
     }
 
     if (action === "delete") {
+      invalidateNovelWorkspace(body.id);
       closeDb(body.id);
       const registry = deleteProfile(body.id);
       return NextResponse.json({ registry, reload: true });

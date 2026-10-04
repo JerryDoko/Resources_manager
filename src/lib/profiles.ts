@@ -18,6 +18,7 @@ export interface ProfilesRegistry {
   activeId: string;
   defaultId: string;
   profiles: ProfileMeta[];
+  deletedProfileIds?: string[];
 }
 
 const profileContext = new AsyncLocalStorage<string>();
@@ -42,7 +43,8 @@ function ensureDir(p: string) {
 }
 
 /** 把旧版扁平 data/library.db 迁到 profiles/default */
-function migrateLegacyIfNeeded() {
+function migrateLegacyIfNeeded(deletedProfileIds: string[] = []) {
+  if (deletedProfileIds.includes("default")) return;
   const root = getRootDataDir();
   const legacyDb = path.join(root, "library.db");
   const defaultDir = profileDir("default");
@@ -72,11 +74,14 @@ function writeRegistry(reg: ProfilesRegistry) {
 }
 
 export function loadRegistry(): ProfilesRegistry {
-  migrateLegacyIfNeeded();
   const root = getRootDataDir();
   ensureDir(root);
+  const raw = fs.existsSync(registryPath())
+    ? JSON.parse(fs.readFileSync(registryPath(), "utf8")) as ProfilesRegistry
+    : null;
+  migrateLegacyIfNeeded(raw?.deletedProfileIds);
 
-  if (!fs.existsSync(registryPath())) {
+  if (!raw) {
     const now = Date.now();
     const reg: ProfilesRegistry = {
       version: 1,
@@ -90,7 +95,6 @@ export function loadRegistry(): ProfilesRegistry {
     return reg;
   }
 
-  const raw = JSON.parse(fs.readFileSync(registryPath(), "utf8")) as ProfilesRegistry;
   if (!raw.profiles?.length) {
     raw.profiles = [{ id: "default", name: "默认", createdAt: Date.now() }];
   }
@@ -185,6 +189,8 @@ export function deleteProfile(id: string) {
   if (!reg.profiles.some((p) => p.id === id)) throw new Error("配置不存在");
 
   reg.profiles = reg.profiles.filter((p) => p.id !== id);
+  // Legacy data may still contain this ID; persist the deletion before removing its directory.
+  reg.deletedProfileIds = [...new Set([...(reg.deletedProfileIds || []), id])];
   if (reg.activeId === id) reg.activeId = reg.defaultId === id ? reg.profiles[0].id : reg.defaultId;
   if (reg.defaultId === id) reg.defaultId = reg.profiles[0].id;
   if (!reg.profiles.some((p) => p.id === reg.activeId)) {

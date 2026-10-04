@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, index, primaryKey } from "drizzle-orm/sqlite-core";
 
 export const libraryFolders = sqliteTable("library_folders", {
   id: text("id").primaryKey(),
@@ -92,3 +92,23 @@ export const settings = sqliteTable("settings", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
 });
+
+export const novelSources = sqliteTable("novel_sources", {
+  itemId: text("item_id").primaryKey().references(() => mediaItems.id, { onDelete: "cascade" }),
+  sourceKey: text("source_key").notNull().unique(), kind: text("kind").notNull(), origin: text("origin"),
+});
+export const novelChapters = sqliteTable("novel_chapters", {
+  id: text("id").primaryKey(), itemId: text("item_id").notNull().references(() => mediaItems.id, { onDelete: "cascade" }),
+  ordinal: integer("ordinal").notNull(), title: text("title").notNull(), text: text("text").notNull(), digest: text("digest").notNull(),
+  sourceUrl: text("source_url"), nextUrl: text("next_url"),
+});
+export const novelReadingState = sqliteTable("novel_reading_state", {
+  itemId: text("item_id").primaryKey().references(() => mediaItems.id, { onDelete: "cascade" }),
+  chapterId: text("chapter_id").notNull(), chunkId: text("chunk_id").notNull(), offset: integer("offset").notNull(),
+  digest: text("digest").notNull(), seconds: real("seconds").notNull().default(0), chunkVersion: integer("chunk_version").notNull(), updatedAt: integer("updated_at").notNull(),
+});
+export const novelChapterProgress = sqliteTable("novel_chapter_progress", {
+  itemId: text("item_id").notNull().references(() => mediaItems.id, { onDelete: "cascade" }),
+  chapterId: text("chapter_id").notNull(), digest: text("digest").notNull(), progress: real("progress").notNull().default(0),
+  offset: integer("offset").notNull().default(0), seconds: real("seconds").notNull().default(0), updatedAt: integer("updated_at").notNull(),
+}, t=>[primaryKey({columns:[t.itemId,t.chapterId]})]);

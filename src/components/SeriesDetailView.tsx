@@ -34,7 +34,8 @@ import {
 import { cn, formatBytes, formatDate, formatDuration } from "@/lib/utils";
 import { MangaReader } from "@/components/viewers/MangaReader";
 import { VideoPlayer } from "@/components/viewers/VideoPlayer";
-import { NovelReader } from "@/components/viewers/NovelReader";
+import { openNovel } from "@/lib/novel/open-reader";
+import { NovelChapterList } from "./NovelChapterList";
 import { VideoItemThumbnail } from "@/components/VideoItemThumbnail";
 
 function dirname(filePath: string) {
@@ -182,6 +183,7 @@ export function SeriesDetailView({
   const [data, setData] = useState<SeriesDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [viewerItemId, setViewerItemId] = useState<string | null>(null);
+  const [novelChapterCount,setNovelChapterCount]=useState<number|null>(null);
   const [thumbFailed, setThumbFailed] = useState(false);
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
   const [itemRatingFilter, setItemRatingFilter] = useState(0);
@@ -398,6 +400,7 @@ export function SeriesDetailView({
 
   const openItem = (item: SeriesDetail["items"][0]) => {
     if (!data) return;
+    if(data.mediaType==="novel"){openNovel({itemId:item.id,title:item.title});return;}
     setViewerItemId(item.id);
   };
 
@@ -783,15 +786,6 @@ export function SeriesDetailView({
         />
       );
     }
-    if (data.mediaType === "novel") {
-      return (
-        <NovelReader
-          itemId={viewerItem.id}
-          title={viewerItem.title}
-          onClose={() => setViewerItemId(null)}
-        />
-      );
-    }
   }
 
   return (
@@ -1008,7 +1002,7 @@ export function SeriesDetailView({
                   <>
                     <div>
                       <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--ink-faint)]">
-                        文件夹
+                        {data.mediaType === "novel" && data.itemCount === 1 ? "书籍" : "文件夹"}
                       </p>
                       <h1 className="text-display mt-1 text-xl font-semibold leading-snug">
                         {data.title}
@@ -1017,7 +1011,7 @@ export function SeriesDetailView({
                         {data.author || "未知作者"}
                       </p>
                       <p className="mt-0.5 text-xs text-[var(--ink-faint)]">
-                        {typeLabel} · {formatBytes(totalSize)} · {data.itemCount} 项
+                        {typeLabel} · {formatBytes(totalSize)} · {data.mediaType==="novel"?`${data.itemCount} 本${novelChapterCount!==null?` · ${novelChapterCount} 章`:""}`:`${data.itemCount} 项`}
                       </p>
                     </div>
 
@@ -1164,7 +1158,7 @@ export function SeriesDetailView({
               </div>
             </div>
 
-            <div>
+            {data.mediaType==="novel"&&data.items.length===1&&!/\.pdf$/i.test(data.items[0].path)?<NovelChapterList itemId={data.items[0].id} title={data.items[0].title} onCount={setNovelChapterCount}/>:<div>
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-sm font-semibold">
                   内容列表 · {filteredItems.length}
@@ -1459,6 +1453,7 @@ export function SeriesDetailView({
               )}
               </div>
             </div>
+            }
           </section>
         </div>
       )}

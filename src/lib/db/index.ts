@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import fs from "fs";
 import path from "path";
 import * as schema from "./schema";
+import { NOVEL_SCHEMA_SQL } from "@/lib/novel/schema";
 import {
   getActiveProfileId,
   getProfileDataDir,
@@ -160,6 +161,7 @@ export function getDb() {
   sqlite.pragma("journal_mode = WAL");
   sqlite.pragma("foreign_keys = ON");
   ensureSchema(sqlite);
+  sqlite.exec(NOVEL_SCHEMA_SQL);
 
   const conn = { db: drizzle(sqlite, { schema }), sqlite };
   _connections.set(profileId, conn);

@@ -8,6 +8,7 @@ import { SeriesGrid } from "@/components/SeriesGrid";
 import { SeriesDetailView } from "@/components/SeriesDetailView";
 import { BatchViewer } from "@/components/BatchViewer";
 import { ImportView } from "@/components/ImportView";
+import { NovelWorkspace } from "./NovelWorkspace";
 import { OrganizePanel } from "@/components/OrganizePanel";
 import { LIBRARY_TAB_ID, useLibrary } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -111,6 +112,7 @@ export function AppShell() {
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
+      <NovelWorkspace />
       {showTabBar && <TabBar />}
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
