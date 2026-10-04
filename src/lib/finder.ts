@@ -4,16 +4,46 @@ import { promisify } from "util";
 const execFileAsync = promisify(execFile);
 
 /**
- * Open native macOS Finder folder picker via AppleScript.
- * Returns absolute POSIX path, or null if cancelled / unavailable.
+ * Open the native folder picker on the server's desktop.
+ * Returns an absolute path, or null if cancelled / unavailable.
  */
 export async function chooseFolderInFinder(
   prompt = "选择媒体文件夹"
 ): Promise<{ path: string | null; error?: string }> {
+  if (process.platform === "win32") {
+    try {
+      const script = `
+        [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+        Add-Type -AssemblyName System.Windows.Forms
+        $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+        $dialog.Description = $env:RM_FOLDER_PROMPT
+        $dialog.ShowNewFolderButton = $false
+        $owner = New-Object System.Windows.Forms.Form
+        $owner.TopMost = $true
+        try {
+          if ($dialog.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) {
+            [Console]::Write($dialog.SelectedPath)
+          }
+        } finally {
+          $dialog.Dispose()
+          $owner.Dispose()
+        }
+      `;
+      const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-STA", "-Command", script], {
+        env: { ...process.env, RM_FOLDER_PROMPT: prompt },
+        windowsHide: true,
+        timeout: 180000,
+        maxBuffer: 1024 * 1024,
+      });
+      return { path: stdout.trim() || null };
+    } catch {
+      return { path: null, error: "打开文件夹选择器失败，请手动输入绝对路径" };
+    }
+  }
   if (process.platform !== "darwin") {
     return {
       path: null,
-      error: "访达选择仅支持 macOS，请手动输入绝对路径",
+      error: "当前系统不支持文件夹选择器，请手动输入绝对路径",
     };
   }
 

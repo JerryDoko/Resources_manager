@@ -47,16 +47,14 @@ export function TabBar() {
 
   return (
     <>
-      <div className="window-drag shrink-0 border-b border-[var(--line)] bg-white">
+      <div className="window-drag flex shrink-0 border-b border-[var(--line)] bg-white">
         <div
           className={cn(
-            "flex h-[52px] items-center gap-3 px-3",
+            "flex h-[52px] min-w-0 flex-1 items-center gap-3 px-3",
             titlebarPadClass,
             mac && "pl-[76px]"
           )}
         >
-          {!mac && <WindowControls className="window-no-drag shrink-0" />}
-
           <button
             type="button"
             onClick={secretClick}
@@ -140,6 +138,7 @@ export function TabBar() {
             </div>
           </div>
         </div>
+        {!mac && <WindowControls className="h-[52px]" />}
       </div>
       <ProfileSwitcher open={showProfiles} onClose={() => setShowProfiles(false)} />
     </>

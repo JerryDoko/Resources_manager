@@ -1,0 +1,20 @@
+[
+  {
+    "id": "kokoro-v1.1-int8",
+    "name": "Kokoro v1.1 轻量版（推荐）",
+    "description": "中文与英文，CPU 离线朗读；下载约 140 MB。",
+    "size": 147031220,
+    "archive": "kokoro-int8-multi-lang-v1_1",
+    "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_1.tar.bz2",
+    "sha256": "a1e94694776049035c4f2c6529f003aaece993c76aae9a78995831c3c4dcafc6"
+  },
+  {
+    "id": "kokoro-v1.1-fp32",
+    "name": "Kokoro v1.1 完整版",
+    "description": "同一套中文与英文音色，未量化模型；下载约 348 MB，占用更多内存。",
+    "size": 364816464,
+    "archive": "kokoro-multi-lang-v1_1",
+    "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_1.tar.bz2",
+    "sha256": "a3f4c73d043860e3fd2e5b06f36795eb81de0fc8e8de6df703245edddd87dbad"
+  }
+]

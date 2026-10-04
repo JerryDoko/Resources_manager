@@ -18,12 +18,16 @@ const ROOT = path.join(__dirname, "..");
 const DIST = path.join(ROOT, "dist-pack");
 const SERVER_OUT = path.join(DIST, "server");
 const NODE_OUT = path.join(DIST, "node");
-const RUNTIME_NODE_VERSION = process.env.RM_RUNTIME_NODE_VERSION || "20.15.1";
+const RUNTIME_NODE_VERSION = process.env.RM_RUNTIME_NODE_VERSION || process.versions.node;
+const NEXT_DIST = ".next-pack";
 
 const CONNECT_TIMEOUT_MS = 10_000;
 
 function rmrf(p) {
-  fs.rmSync(p, { recursive: true, force: true });
+  const resolved = path.resolve(p);
+  const relative = path.relative(DIST, resolved);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) throw new Error(`拒绝清理打包目录外的路径: ${resolved}`);
+  fs.rmSync(resolved, { recursive: true, force: true });
 }
 
 function cpRecursive(src, dest) {
@@ -80,6 +84,13 @@ async function downloadNode(arch) {
     platform === "win"
       ? path.join(NODE_OUT, "node.exe")
       : path.join(NODE_OUT, "bin", "node");
+
+  if (version === process.versions.node && arch === process.arch) {
+    fs.mkdirSync(path.dirname(outputBin), { recursive: true });
+    fs.copyFileSync(process.execPath, outputBin);
+    console.log(`[pack] 复用当前 Node ${version}，保持 SQLite ABI 一致`);
+    return;
+  }
 
   if (fs.existsSync(outputBin)) {
     try {
@@ -147,6 +158,13 @@ function verifyNativeRuntime() {
 }
 
 function rebuildNativeModules() {
+  if (RUNTIME_NODE_VERSION === process.versions.node) {
+    try {
+      execFileSync(process.execPath, ["-e", 'const D=require("better-sqlite3");new D(":memory:").close();require("sharp")'], { cwd: ROOT });
+      console.log("[pack] 当前原生模块已通过运行时检查，无需重建");
+      return;
+    } catch { /* Install the matching native component below. */ }
+  }
   const runtimeBinDir =
     process.platform === "win32" ? NODE_OUT : path.join(NODE_OUT, "bin");
   console.log(`[pack] 使用 Node ${RUNTIME_NODE_VERSION} 重建 better-sqlite3 …`);
@@ -168,9 +186,9 @@ function rebuildNativeModules() {
 
 function prepareStandalone() {
   console.log("[pack] next build …");
-  execSync("npx next build", { cwd: ROOT, stdio: "inherit", env: process.env });
+  execFileSync(process.execPath, [path.join(ROOT,"node_modules/next/dist/bin/next"), "build"], { cwd: ROOT, stdio: "inherit", env: { ...process.env, RM_NEXT_DIST_DIR: NEXT_DIST } });
 
-  const standalone = path.join(ROOT, ".next", "standalone");
+  const standalone = path.join(ROOT, NEXT_DIST, "standalone");
   if (!fs.existsSync(standalone)) {
     throw new Error("未找到 .next/standalone，请确认 next.config output: standalone");
   }
@@ -180,9 +198,15 @@ function prepareStandalone() {
 
   // 构建时可能落在 cwd 下的本地库数据，不要打进安装包
   rmrf(path.join(SERVER_OUT, "data"));
+  // Voice resources are copied separately by afterPack. Tracing can include
+  // both the bundle and its download cache through dynamic filesystem reads.
+  rmrf(path.join(SERVER_OUT, "runtime"));
+  // Next 15 tracing on Windows can omit required metadata modules.
+  // Include the complete Next package so the standalone server can boot.
+  cpRecursive(path.join(ROOT, "node_modules", "next"), path.join(SERVER_OUT, "node_modules", "next"));
 
-  const staticSrc = path.join(ROOT, ".next", "static");
-  const staticDest = path.join(SERVER_OUT, ".next", "static");
+  const staticSrc = path.join(ROOT, NEXT_DIST, "static");
+  const staticDest = path.join(SERVER_OUT, NEXT_DIST, "static");
   if (fs.existsSync(staticSrc)) {
     cpRecursive(staticSrc, staticDest);
   }

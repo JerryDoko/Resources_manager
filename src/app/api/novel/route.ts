@@ -11,7 +11,10 @@ import { importLegacy, previewLegacy } from "@/lib/novel/legacy-import";
 import { exportNovelArchive, restoreNovelArchive } from "@/lib/novel/archive";
 import { readEpubAsset } from "@/lib/epub";
 import { PREVIEW_TEXT } from "@/lib/novel/types";
-import { installation, installRuntime } from "@/lib/novel/runtime-install";
+import { installation, installRuntime, availableVoiceModels } from "@/lib/novel/runtime-install";
+import { getVoiceStorage, getVoicePerformance, updateVoicePerformance } from "@/lib/novel/voice-performance";
+import { benchmarkVoice } from "@/lib/novel/voice-benchmark";
+import { spawn } from "child_process";
 export const runtime="nodejs";
 export const dynamic="force-dynamic";
 const root=globalThis as typeof globalThis & { rmNovelAudio?:Map<string,{profileId:string;itemId:string;path:string}> };
@@ -21,8 +24,10 @@ const fail=(e:unknown)=>NextResponse.json({error:e instanceof Error?e.message:St
 export async function GET(req:NextRequest){
   try{
     const q=req.nextUrl.searchParams,action=q.get("action"),profileId=q.get("profileId")||getActiveProfileId();assertProfile(profileId);
-    if(action==="context")return json({profileId,...kokoroStatus()});
+    if(action==="context")return json({profileId,...kokoroStatus(),models:availableVoiceModels()});
     if(action==="runtime-status")return json(installation());
+    if(action==="voice-storage")return json(getVoiceStorage());
+    if(action==="voice-performance")return json(getVoicePerformance());
     if(action==="export")return new NextResponse(JSON.stringify(exportNovelArchive(profileId),null,2),{headers:{"Content-Type":"application/json","Content-Disposition":"attachment; filename=novel-books.json"}});
     const itemId=q.get("itemId")||"",item=novelItem(profileId,itemId);
     if(action==="asset"){
@@ -54,7 +59,15 @@ export async function POST(req:NextRequest){
       return json(importUploadedBook(profileId,file.name,data));
     }
     const body=await req.json(),{action,profileId,itemId,sessionId}=body;assertProfile(profileId);
-    if(action==="install-runtime")return json(installRuntime(body.directory));
+    if(action==="install-runtime")return json(installRuntime(body.directory,body.modelId));
+    if(action==="voice-performance")return json(updateVoicePerformance({mode:body.mode,threads:body.threads}));
+    if(action==="voice-benchmark")return json(await benchmarkVoice({mode:body.mode,threads:body.threads}));
+    if(action==="open-voice-storage") {
+      const directory=getVoiceStorage().directory;
+      const command=process.platform==="win32"?"explorer.exe":process.platform==="darwin"?"open":"xdg-open";
+      await new Promise<void>((resolve,reject)=>{const child=spawn(command,[directory],{detached:true,stdio:"ignore",windowsHide:true});child.once("error",reject);child.once("spawn",()=>{child.unref();resolve();});});
+      return json({ok:true,directory});
+    }
     if(action==="local-import")return json(importLocalBook(profileId,body.file));
     if(action==="web")return json(await importWeb(profileId,body.url));
     if(action==="legacy-preview")return json(previewLegacy(profileId,body.directory));

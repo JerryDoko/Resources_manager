@@ -4,7 +4,8 @@
 
 :root {
   --ui-scale: 1;
-  --bg: transparent;
+  --bg: #f8fafc;
+  --paper: #fafbf9;
   --bg-elevated: rgba(255, 255, 255, 0.72);
   --bg-panel: rgba(255, 255, 255, 0.55);
   --bg-sidebar: rgba(248, 250, 252, 0.82);
@@ -32,7 +33,7 @@ html {
 html,
 body {
   height: 100%;
-  background: transparent;
+  background: var(--bg);
 }
 
 body {

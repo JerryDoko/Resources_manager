@@ -7,6 +7,9 @@ declare global {
       platform: string;
       close: () => void;
       minimize: () => void;
+      toggleMaximize?: () => void;
+      isMaximized?: () => Promise<boolean>;
+      onMaximizedChange?: (callback: (maximized: boolean) => void) => () => void;
       toggleFullscreen: () => void;
       isFullScreen?: () => Promise<boolean>;
       chooseFolder?: (prompt?: string) => Promise<string | null>;

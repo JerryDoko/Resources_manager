@@ -15,7 +15,7 @@ export function AudiobookReader(props:Props) {
   const [context,setContext]=useState<{profileId:string;available:boolean}|null>(null);
   const [error,setError]=useState("");
   useEffect(()=>{const abort=new AbortController();fetch("/api/novel?action=context",{signal:abort.signal}).then(async r=>{const d=await r.json();if(!r.ok)throw new Error(d.error);setContext(d);}).catch(e=>{if(!abort.signal.aborted)setError(String(e));});return()=>abort.abort();},[]);
-  if(!context)return <FullscreenPortal className="fixed inset-0 z-[300] bg-[var(--paper)] p-8"><button className={button} onClick={props.onClose} aria-label="关闭"><X/></button><p>{error||"加载小说…"}</p></FullscreenPortal>;
+  if(!context)return <FullscreenPortal className="fixed inset-0 z-[300] bg-[var(--paper)] p-8" style={{backgroundColor:"#fafbf9"}}><button className={button} onClick={props.onClose} aria-label="关闭"><X/></button><p>{error||"加载小说…"}</p></FullscreenPortal>;
   return <Reader key={`${context.profileId}:${props.itemId}`} {...props} {...context}/>;
 }
 function Reader({profileId,available,itemId,title,onClose,chapterId}:Props&{profileId:string;available:boolean}) {
@@ -81,7 +81,7 @@ function Reader({profileId,available,itemId,title,onClose,chapterId}:Props&{prof
     {(state.error||state.notice)&&<p className="px-4 text-xs text-amber-800">{state.error||state.notice}</p>}
     <div className="px-3 pb-3"><NovelPlaybackControls compact controller={controller} state={state} onSettingsChange={open=>floating.resizeTo(460,open?400:240)}/></div>
   </div>,floatingRoot);
-  return <FullscreenPortal className="fixed inset-0 z-[300] flex flex-col bg-[#f4f0e6] text-[#2a2418]">
+  return <FullscreenPortal className="fixed inset-0 z-[300] flex flex-col bg-[#f4f0e6] text-[#2a2418]" style={{backgroundColor:"#f4f0e6"}}>
     <header className={`flex flex-wrap items-center gap-3 border-b border-[#e5dfd2] px-4 py-3 ${showTitlebarChrome?"pl-[90px]":""}`}>
       <button title="目录" aria-label="目录" className={button} onClick={()=>setToc(!toc)}><List size={18}/></button>
       <div className="min-w-0 flex-1"><h2 className="truncate font-semibold">{book?.title||title}</h2><p className="truncate text-xs text-[#756c5b]">{chapter?.title} · {Math.min(index+1,chapter?.chunks.length||0)} / {chapter?.chunks.length||0} 段</p></div>

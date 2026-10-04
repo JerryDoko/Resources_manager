@@ -9,7 +9,7 @@ const fixtures=JSON.parse(fs.readFileSync("tests/novel/fixtures/narration.json",
 for(const fixture of fixtures)test(`朗读规则: ${fixture.name}`,()=>{assert.equal(prepareSpeech(fixture.input),fixture.expected);assert.equal(prepareSpeech(prepareSpeech(fixture.input)),fixture.expected);});
 test("Python 与 TypeScript 的18个规则一致",()=>{
   const python=`runtime/kokoro/bundle/${process.platform}-${process.arch}/python/${process.platform==="win32"?"python.exe":"bin/python3"}`;
-  const output=execFileSync(python,["-c","import sys,json;sys.path.insert(0,'runtime/kokoro');from narration import prepare;print(json.dumps([prepare(x['input']) for x in json.load(sys.stdin)],ensure_ascii=False))"],{input:JSON.stringify(fixtures),encoding:"utf8"});
+  const output=execFileSync(python,["-c","import sys,json;sys.path.insert(0,'runtime/kokoro');from narration import prepare;print(json.dumps([prepare(x['input']) for x in json.load(sys.stdin)],ensure_ascii=False))"],{input:JSON.stringify(fixtures),encoding:"utf8",env:{...process.env,PYTHONUTF8:"1",PYTHONIOENCODING:"utf-8"}});
   assert.deepEqual(JSON.parse(output),fixtures.map(f=>f.expected));
 });
 test("Unicode 原文锚点和分段重定位",()=>{

@@ -15,6 +15,7 @@ import { installRuntime,installation } from "../../src/lib/novel/runtime-install
 import { scanFolder } from "../../src/lib/scanner";
 import { legacyChunkOffset } from "../../src/lib/novel/chunks";
 import { nextChapter } from "../../src/lib/novel/web-import";
+import { updateVoicePerformance } from "../../src/lib/novel/voice-performance";
 const temp=fs.mkdtempSync(path.join(os.tmpdir(),"rm-novel-tests-"));process.env.RESOURCES_MANAGER_DATA=path.join(temp,"data");
 after(()=>{tts().stop();revokeNovelSessions();closeDb();fs.rmSync(temp,{recursive:true,force:true});});
 test("资料增量迁移、续听、重置、旧新备份与索引删除",async()=>{
@@ -113,4 +114,14 @@ test("Node 父进程异常结束后 Python 不遗留",{timeout:100000},async()=>
     parent.kill('SIGKILL');let alive=true;for(let i=0;i<30;i++){await new Promise(r=>setTimeout(r,100));try{process.kill(python,0);}catch{alive=false;break;}}
     assert.equal(alive,false);
   }finally{parent.kill('SIGKILL');if(python)try{process.kill(python,'SIGKILL');}catch{/* Already exited. */}}
+});
+
+test("线程设置切换后使用新进程合成，旧进程退出不会取消新任务",{timeout:180000},async()=>{
+  const profile=getActiveProfileId(),item=importChapters(profile,"test:threads","线程测试",[{title:"一",text:"线程设置测试。"}]),session=beginSession(profile,item.itemId);
+  updateVoicePerformance({mode:"quiet"});
+  const request={profileId:profile,itemId:item.itemId,sessionId:session.id,text:"切换之前的第一段内容。",voiceId:3,priority:"foreground" as const};
+  await tts().synthesize(request);const previous=tts().child;
+  updateVoicePerformance({mode:"balanced"});
+  const audio=await tts().synthesize({...request,text:"切换之后的第二段内容。"});
+  assert.ok(audio.duration>0);assert.notEqual(tts().child,previous);assert.equal(tts().threads,Math.min(2,os.availableParallelism()));
 });

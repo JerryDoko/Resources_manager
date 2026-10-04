@@ -23,6 +23,7 @@ import {
   type MediaType,
 } from "@/lib/types";
 import { ShortcutSettings } from "@/components/ShortcutSettings";
+import { NovelVoicePerformance } from "@/components/NovelVoicePerformance";
 import { cn } from "@/lib/utils";
 
 interface StoragePaths {
@@ -706,6 +707,7 @@ export function SettingsPanel() {
             </div>
           </section>
 
+          <NovelVoicePerformance profileId={activeProfileId||""}/>
           <section className="flex items-center justify-between gap-4 border-y border-[var(--line)] py-4">
             <div className="min-w-0">
               <h3 className="text-sm font-semibold">软件更新</h3>

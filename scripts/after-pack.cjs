@@ -25,7 +25,7 @@ exports.default = async function afterPack(context) {
   if(!fs.existsSync(path.join(kokoro,"bundle",target,"manifest.json"))) throw new Error(`缺少 ${target} Kokoro 声音包，请先运行 prepare-kokoro`);
   const kokoroDest=path.join(resources,"kokoro");
   fs.mkdirSync(kokoroDest,{recursive:true});
-  for(const file of ["kokoro_worker.py","narration.py","NOTICE.md","requirements.txt"]) fs.copyFileSync(path.join(kokoro,file),path.join(kokoroDest,file));
+  for(const file of ["kokoro_worker.py","narration.py","NOTICE.md","requirements.txt","install.mjs","models.json"]) fs.copyFileSync(path.join(kokoro,file),path.join(kokoroDest,file));
   fs.cpSync(path.join(kokoro,"bundle",target),path.join(kokoroDest,"bundle",target),{recursive:true,verbatimSymlinks:true});
   if(fs.existsSync(path.join(kokoro,"manifests")))fs.cpSync(path.join(kokoro,"manifests"),path.join(kokoroDest,"manifests"),{recursive:true});
 

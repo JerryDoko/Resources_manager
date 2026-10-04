@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Minus, Square, Copy, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 function isDesktopApp() {
@@ -9,41 +10,48 @@ function isDesktopApp() {
 
 export function WindowControls({ className }: { className?: string }) {
   const [desktop, setDesktop] = useState(false);
+  const [maximized, setMaximized] = useState(false);
 
   useEffect(() => {
-    setDesktop(isDesktopApp());
+    const bridge = window.rmDesktop;
+    setDesktop(isDesktopApp() && bridge?.platform !== "darwin");
+    if (!bridge?.isElectron) return;
+    let disposed = false;
+    void bridge.isMaximized?.().then(value => { if (!disposed) setMaximized(value); }).catch(() => {});
+    const unsubscribe = bridge.onMaximizedChange?.(setMaximized);
+    return () => { disposed = true; unsubscribe?.(); };
   }, []);
 
   if (!desktop) return null;
 
   return (
-    <div className={cn("window-no-drag flex items-center gap-2", className)}>
+    <div className={cn("window-no-drag flex shrink-0 items-stretch text-[var(--ink)]", className)}>
       <button
         type="button"
-        aria-label="关闭"
-        title="关闭"
-        onClick={() => window.rmDesktop?.close()}
-        className="group flex h-3 w-3 items-center justify-center rounded-full bg-[#ff5f57] shadow-sm hover:brightness-95"
-      >
-        <span className="h-2 w-2 rounded-full bg-[#4d0000]/0 group-hover:bg-[#4d0000]/80" />
-      </button>
-      <button
-        type="button"
-        aria-label="缩小"
-        title="缩小"
+        aria-label="最小化"
+        title="最小化"
         onClick={() => window.rmDesktop?.minimize()}
-        className="group flex h-3 w-3 items-center justify-center rounded-full bg-[#febc2e] shadow-sm hover:brightness-95"
+        className="flex h-full w-[46px] items-center justify-center transition-colors hover:bg-black/10"
       >
-        <span className="h-2 w-2 rounded-full bg-[#5c4000]/0 group-hover:bg-[#5c4000]/80" />
+        <Minus className="h-4 w-4" strokeWidth={1}/>
       </button>
       <button
         type="button"
-        aria-label="全屏"
-        title="全屏"
-        onClick={() => window.rmDesktop?.toggleFullscreen()}
-        className="group flex h-3 w-3 items-center justify-center rounded-full bg-[#28c840] shadow-sm hover:brightness-95"
+        aria-label={maximized ? "还原" : "最大化"}
+        title={maximized ? "还原" : "最大化"}
+        onClick={() => window.rmDesktop?.toggleMaximize?.()}
+        className="flex h-full w-[46px] items-center justify-center transition-colors hover:bg-black/10"
       >
-        <span className="h-2 w-2 rounded-full bg-[#003400]/0 group-hover:bg-[#003400]/80" />
+        {maximized ? <Copy className="h-3.5 w-3.5" strokeWidth={1}/> : <Square className="h-3.5 w-3.5" strokeWidth={1}/>}
+      </button>
+      <button
+        type="button"
+        aria-label="关闭窗口"
+        title="关闭窗口"
+        onClick={() => window.rmDesktop?.close()}
+        className="flex h-full w-[46px] items-center justify-center transition-colors hover:bg-[#c42b1c] hover:text-white"
+      >
+        <X className="h-4 w-4" strokeWidth={1}/>
       </button>
     </div>
   );

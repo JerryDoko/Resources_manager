@@ -267,10 +267,8 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     title: "Resources Manager",
-    backgroundColor: "#00000000",
-    transparent: true,
-    vibrancy: "under-window",
-    visualEffectState: "active",
+    backgroundColor: "#f8fafc",
+    transparent: false,
     ...(isMac
       ? {
           frame: true,
@@ -295,10 +293,16 @@ function createWindow() {
   };
   win.on("enter-full-screen", notifyFullscreen);
   win.on("leave-full-screen", notifyFullscreen);
+  const notifyMaximized = () => {
+    if (!win.isDestroyed()) win.webContents.send("rm:maximized-changed", win.isMaximized());
+  };
+  win.on("maximize", notifyMaximized);
+  win.on("unmaximize", notifyMaximized);
 
   win.once("ready-to-show", () => {
     win.show();
     notifyFullscreen();
+    notifyMaximized();
   });
   win.loadURL(URL);
 
@@ -314,7 +318,7 @@ function createWindow() {
           overrideBrowserWindowOptions: {
             width: u.pathname === "/novel-floating" ? 460 : 1100,
             height: u.pathname === "/novel-floating" ? 240 : 760,
-            backgroundColor: "#00000000",
+            backgroundColor: "#fafbf9",
             ...(u.pathname === "/novel-floating" ? { alwaysOnTop: true, frame: false, minWidth: 380, minHeight: 200, resizable: true, title: "听书播放器", backgroundColor: "#fafbf9" } : {}),
             webPreferences: {
               nodeIntegration: false,
@@ -340,6 +344,7 @@ function createWindow() {
 }
 
 ipcMain.handle("rm:is-fullscreen", () => mainWindow?.isFullScreen() ?? false);
+ipcMain.handle("rm:is-maximized", () => mainWindow?.isMaximized() ?? false);
 ipcMain.handle("rm:choose-folder", async (_event, prompt) => {
   const result = await dialog.showOpenDialog(mainWindow || undefined, {
     title: typeof prompt === "string" ? prompt : "选择媒体文件夹",
@@ -360,6 +365,11 @@ ipcMain.handle("rm:reveal-item", (_event, targetPath) => {
 
 ipcMain.on("rm:window-close", () => mainWindow?.close());
 ipcMain.on("rm:window-minimize", () => mainWindow?.minimize());
+ipcMain.on("rm:window-toggle-maximize", () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMaximized()) mainWindow.unmaximize();
+  else mainWindow.maximize();
+});
 ipcMain.on("rm:window-toggle-fullscreen", () => {
   if (!mainWindow) return;
   mainWindow.setFullScreen(!mainWindow.isFullScreen());

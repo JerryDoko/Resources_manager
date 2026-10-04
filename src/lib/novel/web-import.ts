@@ -1,8 +1,8 @@
 import { load } from "cheerio";
-import { lookup } from "dns/promises";
 import http from "http";
 import https from "https";
-import { BlockList, isIP } from "net";
+import { resolvePageAddress } from "./web-address";
+export { publicAddress } from "./web-address";
 import { decodeNovelBuffer } from "@/lib/encoding";
 import { getSqlite } from "@/lib/db";
 import { withProfile } from "@/lib/profiles";
@@ -14,14 +14,9 @@ export function normalizeURL(value:string) {
   if(u.port&&!['80','443'].includes(u.port))throw new Error("不支持该网址端口");
   u.hash="";for(const k of [...u.searchParams.keys()])if(/^utm_|^fbclid$/.test(k))u.searchParams.delete(k);return u.href;
 }
-const blocked=new BlockList(),blocked6=new BlockList();
-for(const [base,prefix] of [["0.0.0.0",8],["10.0.0.0",8],["100.64.0.0",10],["127.0.0.0",8],["169.254.0.0",16],["172.16.0.0",12],["192.168.0.0",16],["192.0.0.0",24],["192.0.2.0",24],["198.18.0.0",15],["198.51.100.0",24],["203.0.113.0",24],["224.0.0.0",4],["240.0.0.0",4]] as const)blocked.addSubnet(base,prefix,"ipv4");
-for(const [base,prefix] of [["::",128],["::1",128],["fc00::",7],["fe80::",10],["ff00::",8],["2001:db8::",32],["::ffff:0:0",96],["64:ff9b::",96],["2002::",16]] as const)blocked6.addSubnet(base,prefix,"ipv6");
-export const publicAddress=(address:string)=>isIP(address)===4?!blocked.check(address,"ipv4"):isIP(address)===6&&!blocked6.check(address,"ipv6");
 export async function downloadPage(input:string,signal?:AbortSignal,redirect=0):Promise<{html:string;url:string}> {
   if(redirect>4)throw new Error("网页重定向过多");const url=normalizeURL(input),u=new URL(url),host=u.hostname.replace(/^\[|\]$/g,"");
-  const addresses=await lookup(host,{all:true});if(!addresses.length||addresses.some(a=>!publicAddress(a.address)))throw new Error("不能导入本机或内网地址");
-  const chosen=addresses[0];
+  const chosen=await resolvePageAddress(host,signal);
   return new Promise((resolve,reject)=>{
     const req=(u.protocol==="https:"?https:http).get(u,{signal,family:chosen.family,headers:{"User-Agent":"ResourcesManager-Novel/1.0","Accept":"text/html","Accept-Encoding":"identity"},lookup:(_host,_opts,cb)=>cb(null,chosen.address,chosen.family)},res=>{
       if(res.statusCode&&[301,302,303,307,308].includes(res.statusCode)) {res.resume();clearTimeout(timer);if(!res.headers.location)return reject(new Error("重定向缺少地址"));downloadPage(new URL(res.headers.location,url).href,signal,redirect+1).then(resolve,reject);return;}

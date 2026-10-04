@@ -25,6 +25,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True, type=Path)
     parser.add_argument("--cache", required=True, type=Path)
+    parser.add_argument("--threads", type=int, default=2)
     args = parser.parse_args()
     parent = os.getppid()
     def watch_parent():
@@ -55,7 +56,7 @@ def main():
                 model=str(onnx), voices=str(model / "voices.bin"),
                 tokens=str(model / "tokens.txt"), data_dir=str(model / "espeak-ng-data"),
                 lexicon=",".join(str(model / name) for name in ("lexicon-us-en.txt", "lexicon-zh.txt")),
-            ), num_threads=2, debug=False, provider="cpu",
+            ), num_threads=max(1, min(32, args.threads)), debug=False, provider="cpu",
         ), rule_fsts=",".join(rules), max_num_sentences=1,
     )
     if not config.validate():
@@ -72,7 +73,7 @@ def main():
             sid = int(request["speaker"])
             if not text.strip() or len(text) > 1000 or not 0 <= sid < engine.num_speakers:
                 raise ValueError("正文或音色编号无效。")
-            key = hashlib.sha256(f"kokoro-v1.1-int8-book-v2|{sid}|{text}".encode()).hexdigest()
+            key = hashlib.sha256(f"{onnx.name}|{onnx.stat().st_size}|book-v2|{sid}|{text}".encode()).hexdigest()
             cache = Path(request.get("cache", str(args.cache)))
             path = cache / f"{key}.wav"
             cached = path.exists()

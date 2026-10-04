@@ -4,15 +4,18 @@ import { BookPlus, Download, FolderOpen, X } from "lucide-react";
 import { novelRequest } from "@/lib/novel/client";
 import { useLibrary } from "@/lib/store";
 import { openNovel } from "@/lib/novel/open-reader";
+import { NovelVoiceInstaller } from "./NovelVoiceInstaller";
+import { NovelVoicePerformance } from "./NovelVoicePerformance";
 type Preview={token:string;books:{title:string;chapters:number}[];totalChapters:number};
 export function NovelImportPanel({inline=false}:{inline?:boolean}){
   const {refresh}=useLibrary();
   const [open,setOpen]=useState(false),[profile,setProfile]=useState(""),[url,setUrl]=useState(""),[directory,setDirectory]=useState(""),[busy,setBusy]=useState(false),[message,setMessage]=useState(""),[preview,setPreview]=useState<Preview|null>(null);
   const [localPath,setLocalPath]=useState("");
   const [runtime,setRuntime]=useState(false);
+  const [runtimeModel,setRuntimeModel]=useState("");
   const [desktop,setDesktop]=useState(false);
   const upload=useRef<HTMLInputElement>(null);
-  const loadContext=async()=>{const r=await fetch("/api/novel?action=context"),d=await r.json();if(!r.ok)throw new Error(d.error);setProfile(d.profileId);setRuntime(d.available);};
+  const loadContext=async()=>{const r=await fetch("/api/novel?action=context"),d=await r.json();if(!r.ok)throw new Error(d.error);setProfile(d.profileId);setRuntime(d.available);setRuntimeModel(d.model||"");};
   useEffect(()=>{setDesktop(!!window.rmDesktop?.chooseNovel);if(inline)void loadContext().catch(e=>setMessage(e instanceof Error?e.message:String(e)));},[inline]);
   const run=async(fn:()=>Promise<void>)=>{setBusy(true);setMessage("");try{await fn();}catch(e){setMessage(e instanceof Error?e.message:String(e));}finally{setBusy(false);}};
   const show=()=>{setOpen(true);void run(loadContext);};
@@ -21,13 +24,6 @@ export function NovelImportPanel({inline=false}:{inline?:boolean}){
   const localImport=()=>{if(!desktop&&!localPath.trim()){upload.current?.click();return;}void run(async()=>{const file=desktop?await window.rmDesktop!.chooseNovel!():localPath.trim();if(!file)return;await novelRequest(profile,"local-import",{file});await imported();});};
   const uploadFile=(file:File)=>void run(async()=>{if(file.size>80*1024*1024)throw new Error("小说文件不能超过 80 MB");const form=new FormData();form.set("profileId",profile);form.set("file",file);const r=await fetch(`/api/novel?profileId=${encodeURIComponent(profile)}`,{method:"POST",body:form}),d=await r.json();if(!r.ok)throw new Error(d.error||"导入失败");await imported();});
   const chooseLegacy=()=>void run(async()=>{const dir=await window.rmDesktop?.chooseFolder?.("选择听页 Books 目录")||directory;if(!dir)throw new Error("请选择包含 catalog.json 的 Books 目录");setDirectory(dir);setPreview(await novelRequest<Preview>(profile,"legacy-preview",{directory:dir}));});
-  const install=(offline:boolean)=>void run(async()=>{
-    const directory=offline?await window.rmDesktop?.chooseFolder?.("选择离线 Kokoro 声音包目录"):undefined;
-    if(offline&&!directory)throw new Error("未选择声音包");
-    await novelRequest(profile,"install-runtime",{directory});
-    for(;;){await new Promise(r=>setTimeout(r,500));const response=await fetch(`/api/novel?action=runtime-status&profileId=${encodeURIComponent(profile)}`);const p=await response.json();if(!response.ok)throw new Error(p.error);setMessage(`${p.phase}${p.total?` · ${Math.floor(p.done/p.total*100)}%`:""}`);if(p.error)throw new Error(p.error);if(!p.running)break;}
-    setRuntime(true);setMessage("声音包安装完成");
-  });
   const button="inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm disabled:opacity-40";
   return <>
     {!inline&&<button className={button} onClick={show}><BookPlus size={17}/>小说导入</button>}
@@ -45,7 +41,8 @@ export function NovelImportPanel({inline=false}:{inline?:boolean}){
         </div>
         <div className="flex flex-wrap gap-2 border-t border-[var(--line)] pt-4"><a className={button} href={`/api/novel?action=export&profileId=${encodeURIComponent(profile)}`} download><Download size={16}/>导出托管小说</a><label className={`${button} cursor-pointer`}>恢复托管小说<input className="hidden" type="file" accept="application/json,.json" onChange={e=>{const file=e.target.files?.[0];if(file)void run(async()=>{if(file.size>80*1024*1024)throw new Error("导出文件超过 80 MB");await novelRequest(profile,"restore",{archive:JSON.parse(await file.text())});await refresh();setMessage("书籍已恢复，已有书籍未覆盖");});e.target.value="";}}/></label></div>
         </div></details>
-        <details className="text-sm"><summary className="cursor-pointer">听书声音包 · {runtime?"已安装":"未安装"}</summary>{!runtime&&<div className="mt-2 flex flex-wrap gap-2"><button className={button} onClick={()=>install(false)}>下载模型 / 重试</button><button className={button} onClick={()=>install(true)}>安装离线声音包</button></div>}</details>
+        <NovelVoiceInstaller profileId={profile} available={runtime} installedModel={runtimeModel} onInstalled={loadContext}/>
+        <NovelVoicePerformance profileId={profile}/>
       </fieldset>
       {(busy||message)&&<p role="status" className="mt-4 break-words text-sm text-[var(--ink-muted)]">{message||(busy?"正在处理…":"")}</p>}
     </section></div>}

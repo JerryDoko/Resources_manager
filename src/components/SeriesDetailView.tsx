@@ -991,8 +991,8 @@ export function SeriesDetailView({
                         type="button"
                         onClick={() => revealItemPath(focusedItem.path)}
                         className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--line)] bg-white text-[var(--ink-muted)] transition hover:border-[var(--accent)]/40 hover:text-[var(--accent)]"
-                        title="在访达/文件夹中显示"
-                        aria-label="在访达或文件夹中显示此图片"
+                        title="在文件夹中显示"
+                        aria-label="在文件夹中显示此图片"
                       >
                         <FolderOpen className="h-4 w-4" />
                       </button>

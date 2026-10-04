@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Star, Check } from "lucide-react";
 import { useLibrary, type SeriesCard } from "@/lib/store";
 import { cn, formatDate } from "@/lib/utils";
+import { VideoItemThumbnail } from "./VideoItemThumbnail";
 
 function RatingStars({ rating }: { rating: number }) {
   return (
@@ -25,12 +26,23 @@ function RatingStars({ rating }: { rating: number }) {
 
 function SeriesThumb({ series, mediaType }: { series: SeriesCard; mediaType: string }) {
   const [failed, setFailed] = useState(false);
+  const [firstVideo, setFirstVideo] = useState<{itemId: string; title: string; updatedAt: number} | null>(null);
   const hues = ["#1f6f6a", "#2d4a6f", "#6f4a2d", "#4a6f3a", "#6f2d4a", "#3a4a6f"];
   const hue = hues[(series.title.charCodeAt(0) || 0) % hues.length];
   const src = `/api/thumbnails/${series.id}?t=${series.updatedAt}`;
   const showsProgress = ["video", "photo", "manga", "webtoon"].includes(mediaType);
 
-  useEffect(() => setFailed(false), [series.id, series.updatedAt]);
+  useEffect(() => { setFailed(false); setFirstVideo(null); }, [series.id, series.updatedAt]);
+  useEffect(() => {
+    if (!failed || mediaType !== "video") return;
+    const abort = new AbortController();
+    void fetch(`/api/thumbnails/${series.id}?source=1`, {signal: abort.signal}).then(async response => {
+      if (!response.ok) return;
+      const data = await response.json();
+      if (!abort.signal.aborted && data.itemId) setFirstVideo(data);
+    }).catch(() => {});
+    return () => abort.abort();
+  }, [failed, mediaType, series.id]);
 
   return (
     <div
@@ -48,7 +60,7 @@ function SeriesThumb({ series, mediaType }: { series: SeriesCard; mediaType: str
           onError={() => setFailed(true)}
           loading="lazy"
         />
-      ) : (
+      ) : firstVideo ? <VideoItemThumbnail {...firstVideo}/> : (
         <div className="absolute inset-0 flex items-end bg-gradient-to-t from-black/70 via-transparent to-transparent p-3">
           <span className="text-display text-lg font-medium leading-tight text-white/90 line-clamp-3">
             {series.title}
@@ -220,7 +232,7 @@ export function SeriesGrid() {
         </div>
         <h2 className="text-display text-2xl font-semibold">还没有内容</h2>
         <p className="mt-2 text-sm text-[var(--ink-muted)]">
-          打开右上角设置，用访达选择本地文件夹并扫描。支持按 [作者] 标题
+          打开设置，选择本地文件夹并扫描。支持按 [作者] 标题
           自动解析，并按系列分组。
         </p>
       </div>

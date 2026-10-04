@@ -7,6 +7,7 @@ import { getProfileDataDir } from "@/lib/profiles";
 import { assertSession, onSessionCancel } from "./sessions";
 import { digest } from "./chunks";
 import { NARRATION_VERSION, prepareSpeech } from "./narration";
+import { getVoicePerformance } from "./voice-performance";
 type Result = { path: string; cached: boolean; duration: number; elapsed: number };
 type Request = { profileId: string; itemId: string; sessionId: string; text: string; voiceId: number; priority: "foreground" | "prefetch" };
 type Job = { key: string; request: Request; subscribers: Map<string, { request: Request; resolve: (r: Result) => void; reject: (e: Error) => void }[]>; priority: number };
@@ -17,10 +18,15 @@ export function kokoroPaths() {
   return { root, bundle, model: path.join(bundle,"model"), worker: path.join(root,"kokoro_worker.py"), python: path.join(bundle,"python",process.platform === "win32" ? "python.exe" : "bin/python3") };
 }
 export function kokoroStatus() {
-  const p=kokoroPaths(); return { available: [p.python,p.worker,path.join(p.model,"voices.bin"),path.join(p.bundle,"manifest.json")].every(f=>fs.existsSync(f)), platform: `${process.platform}-${process.arch}` };
+  const p=kokoroPaths();
+  let model = "";
+  try { model = JSON.parse(fs.readFileSync(path.join(p.bundle,"manifest.json"),"utf8")).model || ""; } catch { /* Not yet installed. */ }
+  const available = [p.python,p.worker,path.join(p.model,"voices.bin"),path.join(p.model,"tokens.txt"),path.join(p.bundle,"manifest.json")].every(f=>fs.existsSync(f)) && fs.readdirSync(p.model).some(f=>f.endsWith(".onnx"));
+  return { available, model, platform: `${process.platform}-${process.arch}` };
 }
 class TtsService {
   child: ChildProcessWithoutNullStreams | null = null;
+  threads = 2;
   ready: Promise<void> | null = null;
   jobs = new Map<string, Job>(); queue: Job[] = []; running = false;
   cache = new Map<string, Result>(); waiting: { id: string; resolve: (r: Result) => void; reject: (e: Error) => void } | null = null;
@@ -36,10 +42,13 @@ class TtsService {
     for (const signal of ["SIGTERM","SIGINT"] as const) process.once(signal,()=>{ this.child?.kill(); process.exit(0); });
   }
   async start(cache: string) {
+    const threads = getVoicePerformance().threads;
+    if (this.ready && this.threads !== threads) this.stop();
     if (this.ready) return this.ready;
     if (!kokoroStatus().available) throw new Error("本地声音包尚未安装，请在小说导入菜单中安装声音包");
     const p=kokoroPaths();
-    const child = this.child = spawn(p.python,["-u",p.worker,"--model",p.model,"--cache",cache],{ windowsHide:true,env:{...process.env,PYTHONUTF8:"1",PYTHONIOENCODING:"utf-8",PYTHONDONTWRITEBYTECODE:"1"} });
+    this.threads = threads;
+    const child = this.child = spawn(p.python,["-u",p.worker,"--model",p.model,"--cache",cache,"--threads",String(threads)],{ windowsHide:true,env:{...process.env,PYTHONUTF8:"1",PYTHONIOENCODING:"utf-8",PYTHONDONTWRITEBYTECODE:"1"} });
     this.ready = new Promise<void>((resolve,reject)=> {
       const timer=setTimeout(()=>{ reject(new Error("声音模型启动超时")); child.kill(); },90000);
       const lines=createInterface({input:child.stdout});
@@ -54,7 +63,7 @@ class TtsService {
         } catch { /* Protocol diagnostics never include book text. */ }
       });
       child.stderr.on("data",()=>{});
-      const fail=()=>{ clearTimeout(timer); lines.close(); reject(new Error("本地声音进程已停止")); this.waiting?.reject(new Error("本地声音进程已停止，请重试")); this.waiting=null; if(this.child===child){this.child=null;this.ready=null;} };
+      const fail=()=>{ clearTimeout(timer); lines.close(); reject(new Error("本地声音进程已停止")); if(this.child===child){this.waiting?.reject(new Error("本地声音进程已停止，请重试"));this.waiting=null;this.child=null;this.ready=null;} };
       child.once("error",fail); child.once("exit",fail);
     });
     return this.ready;
@@ -64,7 +73,7 @@ class TtsService {
     if (!Number.isInteger(request.voiceId)||request.voiceId<3||request.voiceId>102) throw new Error("中文音色无效");
     const text=prepareSpeech(request.text);
     if(!text||text.length>1200) throw new Error("此段没有可朗读文字或过长");
-    const key=`${request.profileId}:${digest(`${NARRATION_VERSION}|${request.voiceId}|${text}`)}`;
+    const key=`${request.profileId}:${digest(`${kokoroStatus().model}|${NARRATION_VERSION}|${request.voiceId}|${text}`)}`;
     const hit=this.cache.get(key);
     if(hit&&fs.existsSync(hit.path)) return Promise.resolve({...hit,cached:true,elapsed:0});
     return new Promise((resolve,reject)=>{
@@ -101,7 +110,7 @@ class TtsService {
     }
     this.running=false;
   }
-  stop(){this.child?.kill();this.child=null;this.ready=null;}
+  stop(){this.child?.kill();this.child=null;this.ready=null;this.cache.clear();}
 }
 const globalTts=globalThis as typeof globalThis & { rmNovelTts?: TtsService };
 export const tts=()=>globalTts.rmNovelTts ||= new TtsService();

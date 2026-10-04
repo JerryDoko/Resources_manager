@@ -1,6 +1,6 @@
 {
   "name": "resources-manager",
-  "version": "1.1.11",
+  "version": "1.1.12",
   "private": true,
   "description": "本地一体化资源管理器 — 漫画、条漫、小说、视频与照片，私有、离线、自动整理",
   "author": "JerryDoko",
@@ -12,6 +12,7 @@
     "test:profiles": "node --test scripts/test-profile-migration.cjs",
     "test:novel": "node --import tsx --test tests/novel/*.test.ts",
     "kokoro:prepare": "node scripts/prepare-kokoro.mjs",
+    "kokoro:install": "node runtime/kokoro/install.mjs",
     "db:studio": "drizzle-kit studio",
     "resources": "bash scripts/start.sh dev",
     "resources:start": "bash scripts/start.sh start",
@@ -78,7 +79,8 @@
     "npmRebuild": false,
     "files": [
       "electron/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules/**/*"
     ],
     "extraResources": [],
     "mac": {

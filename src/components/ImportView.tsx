@@ -33,6 +33,11 @@ export function ImportView() {
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
   const loadSeq = useRef(0);
   const mounted = useRef(true);
+  const pathInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (showAdd) pathInput.current?.focus();
+  }, [showAdd]);
 
   const typeLabel = MEDIA_TYPE_LABELS[mediaType];
   const filteredFolders = folders.filter((f) => f.mediaType === mediaType);
@@ -109,6 +114,11 @@ export function ImportView() {
       });
       const data = await res.json();
       if (!mounted.current) return;
+      if (!res.ok || data.error) {
+        setShowAdd(true);
+        setMsg(data.error || "打开文件夹选择器失败，请手动输入路径");
+        return;
+      }
       if (data.path) {
         setPath(data.path);
         setMsg(null);
@@ -269,6 +279,8 @@ export function ImportView() {
           <div className="flex flex-col gap-2">
             <div className="flex flex-wrap gap-2">
               <input
+                ref={pathInput}
+                aria-label="媒体文件夹路径"
                 value={path}
                 onChange={(e) => setPath(e.target.value)}
                 placeholder="输入文件夹路径"

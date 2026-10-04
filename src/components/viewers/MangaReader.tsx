@@ -434,8 +434,8 @@ export function MangaReader({
               type="button"
               onClick={revealCurrentImage}
               className="rounded-lg p-2 hover:bg-white/10"
-              title="在访达/文件夹中显示"
-              aria-label="在访达或文件夹中显示当前图片"
+              title="在文件夹中显示"
+              aria-label="在文件夹中显示当前图片"
             >
               <FolderOpen className="h-5 w-5" />
             </button>
