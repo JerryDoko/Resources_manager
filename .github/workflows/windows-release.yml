@@ -35,6 +35,7 @@ jobs:
           architecture: x64
 
       - name: Prepare offline Kokoro runtime
+        timeout-minutes: 10
         shell: pwsh
         run: ./scripts/prepare-windows-kokoro.ps1
 
