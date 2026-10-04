@@ -127,6 +127,19 @@ powershell -ExecutionPolicy Bypass -File scripts/verify-windows-novel.ps1 -Kokor
 - SHA256：`91d883b837818895a000ad506c7b3ad2acf0954def192c77163e6a5d96855b2b`。
 - 深度 ad-hoc 签名验证与 `hdiutil verify` 通过；仍未做 Apple Developer ID 公证。
 - 实际运行此包内的应用，默认阅读、直接 TXT/EPUB 导入、章节与图片、真实 Kokoro、实时音量/倍速、悬浮设置/展开、自动续章、双窗口会话、基础媒体回归全部通过；errors 为空，退出后 Python 消失。报告：`test-results/novel/packaged-desktop.json`。
-- Windows 尚未生成。当前打包保护要求目标平台的 Node/SQLite；已查询 better-sqlite3 12.11.1 官方资产，没有 Node ABI 115 的 Windows 预编译包。本机无 Wine/PowerShell，Docker 未运行；Windows 需要在 Windows 主机/CI 准备和编译原生模块。已向用户询问是否允许推送构建分支并执行 GitHub Actions，尚未推送或发布 Release。
+- 当时 Windows 尚未生成；随后用户授权构建分支和 GitHub Actions，结果见下节。
 
-尚未做的实机项目：Windows、系统 TTS、手机/Android、Apple 公证/其他 Mac 下载后的 Gatekeeper 验证，以及超大型 EPUB 的性能压力测试。网页仅支持无需登录的静态正文，不绕过验证码。
+### Windows CI 安装包（2026-10-04）
+
+- 构建分支：`build/windows-novel-20261004`。安装包对应提交 `2ff83b283ddca3a79d4dbdfd8098314dbb29b010`，未修改远程 main，未发布 Release。
+- 成功记录：https://github.com/JerryDoko/Resources_manager/actions/runs/37212219408 。Actions 产物保留 14 天，本地下载目录为 `release/desktop-2026-10-04/windows-x64/`。
+- Windows Server 2022 x64、Node 20.15.1、内置 Python 3.13.7。官方 Python 和 Kokoro 模型压缩包均按固定 SHA256 校验；声音依赖版本固定在 `runtime/kokoro/requirements.txt`。
+- `scripts/prepare-windows-kokoro.ps1` 自动下载、校验、组装离线环境；无需上传本地模型、书库或缓存。第一次构建在下载后停止推进，取消后改用 Python 标准库解压；第二次声音环境准备约 20 秒通过。
+- 配置迁移测试 5/5，小说测试 40/40；真实中文女声/男声 WAV 合成、缓存复用、父进程结束后的 Python 退出全部通过。CI 首段含模型启动约 9.16 秒、合成约 6.74 秒，音频约 3.46 秒；不是实际扬声器输出测试。
+- Next standalone 构建、原生 SQLite 编译通过。最终 `win-unpacked/resources` 内 Node/SQLite 建表以及 Python 加载 sherpa-onnx、NumPy、OpenCC 通过，不仅检查源码依赖。
+- 安装版：`Resources-Manager-1.1.10-windows-x64-setup.exe`；SHA256：`a8f1bfb82271cdcd2df87e319ca8fbb8358ed1e41353b905fd0791770eb51a94`。
+- 便携版：`Resources-Manager-1.1.10-windows-x64-portable.exe`；SHA256：`5a5a13c7ccf62a6d22f833c092c259441d0de6386ed91257cf60941ba305a705`。
+- 没有配置 Windows 代码签名证书。未验证 Windows 10/11 实机安装、窗口操作、系统 TTS、扬声器音频输出和 SmartScreen 提示；不把 CI 测试当作这些实机验收。
+- 本轮没有升级现有依赖主版本。CI 的 npm audit 仍报告 35 项依赖漏洞（4 moderate、29 high、2 critical），包括旧版 Next；需要另行处理并回归，不能把当前构建视为安全审计通过。
+
+尚未做的实机项目：Windows 界面/安装/实际音频输出、系统 TTS、手机/Android、Apple 公证/其他 Mac 下载后的 Gatekeeper 验证，以及超大型 EPUB 的性能压力测试。网页仅支持无需登录的静态正文，不绕过验证码。
