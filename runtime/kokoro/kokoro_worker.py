@@ -13,7 +13,8 @@ import threading
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from opencc import OpenCC
-import sherpa_onnx
+import numpy as np
+from ort_engine import KokoroEngine, ENGINE_ID
 from narration import prepare
 
 
@@ -49,21 +50,9 @@ def main():
     threading.Thread(target=watch_parent, daemon=True).start()
     model = args.model
     onnx = next(model.glob("*.onnx"))
-    rules = [str(model / name) for name in ("date-zh.fst", "number-zh.fst", "phone-zh.fst") if (model / name).exists()]
-    config = sherpa_onnx.OfflineTtsConfig(
-        model=sherpa_onnx.OfflineTtsModelConfig(
-            kokoro=sherpa_onnx.OfflineTtsKokoroModelConfig(
-                model=str(onnx), voices=str(model / "voices.bin"),
-                tokens=str(model / "tokens.txt"), data_dir=str(model / "espeak-ng-data"),
-                lexicon=",".join(str(model / name) for name in ("lexicon-us-en.txt", "lexicon-zh.txt")),
-            ), num_threads=max(1, min(32, args.threads)), debug=False, provider="cpu",
-        ), rule_fsts=",".join(rules), max_num_sentences=1,
-    )
-    if not config.validate():
-        raise RuntimeError("Kokoro 模型文件不完整，请重新运行安装脚本。")
-    engine = sherpa_onnx.OfflineTts(config)
+    engine = KokoroEngine(model, args.threads)
     converter = OpenCC("t2s")
-    emit({"ready": True, "speakers": engine.num_speakers})
+    emit({"ready": True, "speakers": engine.num_speakers, "engine": ENGINE_ID})
     for line in sys.stdin:
         request = {}
         try:
@@ -73,16 +62,21 @@ def main():
             sid = int(request["speaker"])
             if not text.strip() or len(text) > 1000 or not 0 <= sid < engine.num_speakers:
                 raise ValueError("正文或音色编号无效。")
-            key = hashlib.sha256(f"{onnx.name}|{onnx.stat().st_size}|book-v2|{sid}|{text}".encode()).hexdigest()
+            key = hashlib.sha256(f"{onnx.name}|{onnx.stat().st_size}|{ENGINE_ID}|book-v2|{sid}|{text}".encode()).hexdigest()
             cache = Path(request.get("cache", str(args.cache)))
             path = cache / f"{key}.wav"
             cached = path.exists()
             if not cached:
                 audio = engine.generate(text, sid=sid, speed=1.0)
-                if len(audio.samples) == 0:
+                if len(audio) == 0:
                     raise RuntimeError("未能生成音频，请尝试其他段落。")
                 temporary = path.with_suffix(".tmp.wav")
-                sherpa_onnx.write_wave(str(temporary), audio.samples, audio.sample_rate)
+                cache.mkdir(parents=True, exist_ok=True)
+                with wave.open(str(temporary), "wb") as output:
+                    output.setnchannels(1)
+                    output.setsampwidth(2)
+                    output.setframerate(engine.sample_rate)
+                    output.writeframes((np.clip(audio, -1, 1) * 32767).astype("<i2").tobytes())
                 temporary.replace(path)
             with wave.open(str(path), "rb") as stream:
                 duration = stream.getnframes() / stream.getframerate()

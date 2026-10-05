@@ -1,0 +1,12 @@
+import fs from 'node:fs/promises';
+import sharp from 'sharp';
+const svg = await fs.readFile('public/app-icon.svg');
+const png = await sharp(svg).resize(1024,1024).png().toBuffer();
+await fs.writeFile('build-resources/icon.png',png);
+await fs.writeFile('public/app-icon.png',png);
+const small = await sharp(svg).resize(256,256).png().toBuffer();
+const ico = Buffer.alloc(22);ico.writeUInt16LE(1,2);ico.writeUInt16LE(1,4);ico[8]=0;ico.writeUInt16LE(1,10);ico.writeUInt16LE(32,12);ico.writeUInt32LE(small.length,14);ico.writeUInt32LE(22,18);
+await fs.writeFile('build-resources/icon.ico',Buffer.concat([ico,small]));
+const icns = Buffer.alloc(16);icns.write('icns',0);icns.writeUInt32BE(16+png.length,4);icns.write('ic10',8);icns.writeUInt32BE(8+png.length,12);
+await fs.writeFile('build-resources/icon.icns',Buffer.concat([icns,png]));
+console.log('Original SVG icons generated for Windows, macOS and web');

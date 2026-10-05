@@ -230,6 +230,13 @@ async function main() {
   rebuildNativeModules();
   prepareStandalone();
   verifyNativeRuntime();
+  if(process.platform==='win32'){
+    const sources=path.join(DIST,'third-party-sources');
+    execFileSync(process.execPath,[path.join(ROOT,'scripts/download-third-party-sources.mjs'),sources],{cwd:ROOT,stdio:'inherit'});
+    execFileSync(process.execPath,[path.join(ROOT,'scripts/prepare-third-party.mjs'),sources],{cwd:ROOT,stdio:'inherit'});
+  }else{
+    execFileSync(process.execPath,[path.join(ROOT,'scripts/prepare-third-party.mjs')],{cwd:ROOT,stdio:'inherit'});
+  }
 
   console.log(`[pack] ${process.platform} 打包资源准备完成`);
 }

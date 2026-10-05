@@ -1,4 +1,5 @@
 import path from "path";
+import fs from 'node:fs';
 import { spawn } from "child_process";
 import { createInterface } from "readline";
 import { kokoroPaths, kokoroStatus, tts } from "./tts-service";
@@ -12,13 +13,15 @@ export const availableVoiceModels = () => voiceModels.map(({ id, name, descripti
 export function installRuntime(directory?: string, modelId = "kokoro-v1.1-int8") {
   if (!voiceModels.some(model => model.id === modelId)) throw new Error("未知语音模型");
   if (directory !== undefined && (typeof directory !== "string" || !directory.trim())) throw new Error("请选择离线声音包目录");
+  const installer = path.join(kokoroPaths().root, 'install.mjs');
+  if (!fs.existsSync(installer)) throw new Error(`应用缺少声音安装脚本：${installer}。请重新准备桌面资源或重新安装应用。`);
   const p = installation();
   if (p.running) throw new Error("声音包正在安装");
   Object.assign(p, { running: true, phase: "准备安装", done: 0, total: 0, error: "", modelId });
   const root = process.env.RM_KOKORO_INSTALL_ROOT || path.join(process.env.RESOURCES_MANAGER_DATA || path.join(process.cwd(), "data"), "kokoro-runtime");
   const dest = path.join(root, "bundle", `${process.platform}-${process.arch}`);
   tts().stop();
-  const args = [path.join(kokoroPaths().root, "install.mjs"), "--dest", dest, "--model", modelId];
+  const args = [installer, "--dest", dest, "--model", modelId];
   if (directory) args.push("--from", directory);
   const child = spawn(process.execPath, args, { windowsHide: true, env: { ...process.env, PYTHONUTF8: "1", PYTHONDONTWRITEBYTECODE: "1" } });
   const lines = createInterface({ input: child.stdout });

@@ -11,8 +11,8 @@ const inspectVoiceSource = async (directory: string) => (await installer).inspec
 const temp = mkdtempSync(path.join(os.tmpdir(), "rm-model-source-"));
 after(() => fs.rm(temp, { recursive: true, force: true }));
 async function model(dir: string, onnx = "model.onnx") {
-  await fs.mkdir(path.join(dir, "espeak-ng-data"), { recursive: true });
-  for (const name of [onnx, "voices.bin", "tokens.txt", "lexicon-us-en.txt", "lexicon-zh.txt"]) await fs.writeFile(path.join(dir, name), "fixture");
+  await fs.mkdir(dir, { recursive: true });
+  for (const name of [onnx, "voices.bin", "tokens.txt", "lexicon-us-en.txt", "lexicon-zh.txt", "LICENSE"]) await fs.writeFile(path.join(dir, name), "fixture");
 }
 test("官方模型同名嵌套目录可识别，兼容带引号的 Windows 路径", async () => {
   const outer = path.join(temp, "kokoro-multi-lang-v1_1"), inner = path.join(outer, "kokoro-multi-lang-v1_1");

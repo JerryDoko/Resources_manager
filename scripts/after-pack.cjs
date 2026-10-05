@@ -22,10 +22,18 @@ exports.default = async function afterPack(context) {
   const target = `${context.electronPlatformName}-${arch}`;
   if(context.electronPlatformName !== process.platform || arch !== process.arch) throw new Error("必须在目标平台准备 Node/SQLite 并打包，禁止复用另一平台的 dist-pack");
   const kokoro = path.join(root,"runtime/kokoro");
+  const { pathToFileURL } = require('url');
+  const { assertVoiceRuntime, ENGINE_ID } = await import(pathToFileURL(path.join(kokoro,'runtime-safety.mjs')).href);
   if(!fs.existsSync(path.join(kokoro,"bundle",target,"manifest.json"))) throw new Error(`缺少 ${target} Kokoro 声音包，请先运行 prepare-kokoro`);
+  const manifest=JSON.parse(fs.readFileSync(path.join(kokoro,'bundle',target,'manifest.json'),'utf8'));
+  if(manifest.engine!==ENGINE_ID)throw new Error('声音包引擎不兼容，请重新准备后打包');
+  assertVoiceRuntime(path.join(kokoro,'bundle',target));
+  const licenses=path.join(root,'dist-pack/licenses');
+  if(!fs.existsSync(path.join(licenses,'npm-inventory.json'))||!fs.existsSync(path.join(nodeSrc,'LICENSE')))throw new Error('缺少第三方授权，请运行 prepare-third-party.mjs 后再打包');
+  fs.cpSync(licenses,path.join(resources,'licenses'),{recursive:true});
   const kokoroDest=path.join(resources,"kokoro");
   fs.mkdirSync(kokoroDest,{recursive:true});
-  for(const file of ["kokoro_worker.py","narration.py","NOTICE.md","requirements.txt","install.mjs","models.json"]) fs.copyFileSync(path.join(kokoro,file),path.join(kokoroDest,file));
+  for(const file of ["kokoro_worker.py","ort_engine.py","narration.py","NOTICE.md","requirements.txt","install.mjs","runtime-safety.mjs","models.json"]) fs.copyFileSync(path.join(kokoro,file),path.join(kokoroDest,file));
   fs.cpSync(path.join(kokoro,"bundle",target),path.join(kokoroDest,"bundle",target),{recursive:true,verbatimSymlinks:true});
   if(fs.existsSync(path.join(kokoro,"manifests")))fs.cpSync(path.join(kokoro,"manifests"),path.join(kokoroDest,"manifests"),{recursive:true});
 

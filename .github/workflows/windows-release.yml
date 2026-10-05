@@ -51,6 +51,9 @@ jobs:
       - name: Build Windows packages
         run: npm run release:win
 
+      - name: Package corresponding third-party sources
+        run: node scripts/package-third-party-sources.mjs
+
       - name: Verify packaged runtime
         shell: pwsh
         run: |
@@ -60,7 +63,7 @@ jobs:
           & $node -e 'const Database=require("better-sqlite3");const db=new Database(":memory:");db.exec("create table ok(id integer)");db.close();console.log("SQLite runtime OK")'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Pop-Location
-          & $python -c 'import sherpa_onnx,numpy,opencc; print("Packaged Kokoro imports OK")'
+          & $python -c 'import onnxruntime,numpy,opencc; print("Packaged Kokoro imports OK")'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Get-ChildItem release/*.exe | Get-FileHash -Algorithm SHA256 | Format-List
 
@@ -68,7 +71,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Resources-Manager-${{ github.sha }}-windows-x64
-          path: release/*.exe
+          path: |
+            release/*.exe
+            release/*third-party-sources.zip
           if-no-files-found: error
           retention-days: 14
           compression-level: 0

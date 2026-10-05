@@ -8,11 +8,12 @@ import { assertSession, onSessionCancel } from "./sessions";
 import { digest } from "./chunks";
 import { NARRATION_VERSION, prepareSpeech } from "./narration";
 import { getVoicePerformance } from "./voice-performance";
+import { resolveKokoroResourceRoot } from './runtime-paths';
 type Result = { path: string; cached: boolean; duration: number; elapsed: number };
 type Request = { profileId: string; itemId: string; sessionId: string; text: string; voiceId: number; priority: "foreground" | "prefetch" };
 type Job = { key: string; request: Request; subscribers: Map<string, { request: Request; resolve: (r: Result) => void; reject: (e: Error) => void }[]>; priority: number };
 export function kokoroPaths() {
-  const root = process.env.RM_KOKORO_ROOT || path.join(process.cwd(), "runtime/kokoro");
+  const root = resolveKokoroResourceRoot();
   const installed=path.join(process.env.RM_KOKORO_INSTALL_ROOT || path.join(process.env.RESOURCES_MANAGER_DATA || path.join(process.cwd(),"data"),"kokoro-runtime"),"bundle",`${process.platform}-${process.arch}`);
   const bundle = fs.existsSync(path.join(installed,"manifest.json"))?installed:path.join(root,"bundle",`${process.platform}-${process.arch}`);
   return { root, bundle, model: path.join(bundle,"model"), worker: path.join(root,"kokoro_worker.py"), python: path.join(bundle,"python",process.platform === "win32" ? "python.exe" : "bin/python3") };
@@ -21,7 +22,9 @@ export function kokoroStatus() {
   const p=kokoroPaths();
   let model = "";
   try { model = JSON.parse(fs.readFileSync(path.join(p.bundle,"manifest.json"),"utf8")).model || ""; } catch { /* Not yet installed. */ }
-  const available = [p.python,p.worker,path.join(p.model,"voices.bin"),path.join(p.model,"tokens.txt"),path.join(p.bundle,"manifest.json")].every(f=>fs.existsSync(f)) && fs.readdirSync(p.model).some(f=>f.endsWith(".onnx"));
+  let engine = "";
+  try { engine = JSON.parse(fs.readFileSync(path.join(p.bundle,"manifest.json"),"utf8")).engine || ""; } catch { /* Legacy bundle needs reinstalling. */ }
+  const available = engine === "kokoro-ort-lexicon-v1" && [p.python,p.worker,path.join(p.model,"voices.bin"),path.join(p.model,"tokens.txt"),path.join(p.bundle,"manifest.json")].every(f=>fs.existsSync(f)) && fs.readdirSync(p.model).some(f=>f.endsWith(".onnx"));
   return { available, model, platform: `${process.platform}-${process.arch}` };
 }
 class TtsService {

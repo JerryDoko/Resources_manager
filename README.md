@@ -2,11 +2,10 @@
 
 面向本地文件的媒体资源库。把漫画、条漫、小说、视频和照片按文件夹整理，在同一个桌面窗口中查找、阅读与播放。导入和分组只维护资源库索引，不搬动原文件。
 
-![照片资源库主界面](docs/screenshots/overview.jpg)
 
 ## 开始使用
 
-目前提供 macOS Apple Silicon 安装包；已发布的版本可在 [GitHub Releases](https://github.com/JerryDoko/Resources_manager/releases) 下载。安装后添加文件夹，即可建立资源库。
+本分支提供 Windows x64 安装包，声音引擎和安装说明见 [Windows 使用说明](docs/windows-voice-setup.md)。macOS 版本由主分支维护；已发布的版本可在 [GitHub Releases](https://github.com/JerryDoko/Resources_manager/releases) 下载。安装后添加文件夹，即可建立资源库。
 
 从源码运行需要 Node.js 20 和 npm：
 
@@ -24,7 +23,6 @@ npm run resources
 - 视频和照片按文件夹归为系列。打开照片文件夹时会检查新增图片并自动导入。
 - 在文件夹内多选文件，可创建逻辑分组，或移动到同类型的已有分组；磁盘上的文件位置保持不变。
 
-![导入路径与递归扫描设置](docs/screenshots/imports.jpg)
 
 ## 浏览资源库
 
@@ -33,27 +31,26 @@ npm run resources
 - 文件夹内容支持按名称、路径、日期的包含搜索，以及按评分筛选。打开筛选后的文件时，阅读或播放队列遵循当前筛选结果与排序。
 - 支持多标签页、项目评分、标签、缩略图和内容详情。将项目从资源库移除只删除索引，不删除源文件。
 
-![文件夹详情、内容筛选与排序](docs/screenshots/folder-detail.jpg)
 
 ## 阅读与播放
 
 **漫画与条漫**：浏览图片文件夹或 ZIP/CBZ 内容；条漫可向下连续阅读文件夹中的图片，宽度滑块默认 50%，并记住调整后的宽度。图片可从阅读器中定位到访达中的原文件。
 
-![条漫连续阅读与宽度调节](docs/screenshots/webtoon.jpg)
 
 **小说**：支持 TXT、EPUB、PDF。EPUB 可显示章节中的图片，并在滚动到章节边界后继续切换章节。
 
+下图使用项目自行编写的示例文字；图标与演示内容的来源见 [素材来源](docs/asset-sources.md)。
+
+![原创示例小说阅读界面](docs/screenshots/original-novel.jpg)
+
 **视频**：记录播放进度，下次打开从上次位置继续，也可手动重置；切换全屏保留播放位置。支持 1、1.25、1.5、2、3 倍速，默认长按右方向键临时 3 倍速，松开后恢复。按 `K` 打开小弹窗，用滑块实时调整音量和固定档位速度，并为每个视频分别保存设置；“恢复默认”还原 100% 音量与 1 倍速，不重置进度。所有播放设置只存入资源库，不修改原视频文件。截帧可保存到本地、替换当前视频封面或替换视频文件夹封面。播放列表可调整顺序，并选择顺序播放、列表循环、单曲循环或随机播放。
 
-![全屏视频播放器](docs/screenshots/video-player.jpg)
 
-![播放器内的可排序播放列表](docs/screenshots/video-playlist.jpg)
 
 ## 多工作区
 
 不同工作区使用独立的资源库数据库、缩略图和设置。可创建、重命名、删除工作区，并指定默认启动工作区。点击标题栏左侧图标五次，或按 `⌘⇧.`（Windows/Linux 为 `Ctrl+Shift+.`）打开切换界面。
 
-![工作区切换界面](docs/screenshots/profiles.jpg)
 
 ## AI 控制与更新
 

@@ -1,0 +1,471 @@
+[
+  {
+    "group": "8.18.3",
+    "name": "aom",
+    "version": "3.14.1",
+    "url": "https://storage.googleapis.com/aom-releases/libaom-3.14.1.tar.gz",
+    "sha256": "44bf90dbd23e734d50e70a8c41c285193922938bd0d3bc2ee56764d181d55ef5",
+    "file": "8.18.3/aom-3.14.1.tar.gz"
+  },
+  {
+    "group": "8.18.3",
+    "name": "archive",
+    "version": "3.8.7",
+    "url": "https://github.com/libarchive/libarchive/releases/download/v3.8.7/libarchive-3.8.7.tar.xz",
+    "sha256": "d3a8ba457ae25c27c84fd2830a2efdcc5b1d40bf585d4eb0d35f47e99e5d4774",
+    "file": "8.18.3/archive-3.8.7.tar.xz"
+  },
+  {
+    "group": "8.18.3",
+    "name": "cairo",
+    "version": "1.18.4",
+    "url": "https://cairographics.org/releases/cairo-1.18.4.tar.xz",
+    "sha256": "445ed8208a6e4823de1226a74ca319d3600e83f6369f99b14265006599c32ccb",
+    "file": "8.18.3/cairo-1.18.4.tar.xz"
+  },
+  {
+    "group": "8.18.3",
+    "name": "cgif",
+    "version": "0.5.3",
+    "url": "https://github.com/dloebl/cgif/archive/v0.5.3.tar.gz",
+    "sha256": "dcc7731e974ee77db75df26c99aca4d95f11ca2d267d870d42bce1e0d1e1e75f",
+    "file": "8.18.3/cgif-0.5.3.tar.gz"
+  },
+  {
+    "group": "8.18.3",
+    "name": "exif",
+    "version": "0.6.26",
+    "url": "https://github.com/libexif/libexif/releases/download/v0.6.26/libexif-0.6.26.tar.xz",
+    "sha256": "4a055ed6575e61ca46c3172be3c753cc16c9becd0f99ec71d58dd0e471476c0c",
+    "file": "8.18.3/exif-0.6.26.tar.xz"
+  },
+  {
+    "group": "8.18.3",
+    "name": "expat",
+    "version": "2.8.1",
+    "url": "https://downloads.sourceforge.net/project/expat/expat/2.8.1/expat-2.8.1.tar.bz2",
+    "sha256": "f5833dd2e1cd7739ec9182804a1a29c4f0cc7c2f26b633d3a2188b7766a88ecb",
+    "file": "8.18.3/expat-2.8.1.tar.bz2"
+  },
+  {
+    "group": "8.18.3",
+    "name": "ffi",
+    "version": "3.5.2",
+    "url": "https://github.com/libffi/libffi/releases/download/v3.5.2/libffi-3.5.2.tar.gz",
+    "sha256": "f3a3082a23b37c293a4fcd1053147b371f2ff91fa7ea1b2a52e335676bac82dc",
+    "file": "8.18.3/ffi-3.5.2.tar.gz"
+  },
+  {
+    "group": "8.18.3",
+    "name": "fontconfig",
+    "version": "2.18.1",
+    "url": "https://gitlab.freedesktop.org/api/v4/projects/890/packages/generic/fontconfig/2.18.1/fontconfig-2.18.1.tar.xz",
+    "sha256": "2300f3dbfa7253b3a44f4feecdbc8dfa45dde5dc2cfb71fceaf31f394cb41031",
+    "file": "8.18.3/fontconfig-2.18.1.tar.xz"
+  },
+  {
+    "group": "8.18.3",
+    "name": "freetype",
+    "version": "2.14.3",
+    "url": "https://downloads.sourceforge.net/project/freetype/freetype2/2.14.3/freetype-2.14.3.tar.xz",
+    "sha256": "36bc4f1cc413335368ee656c42afca65c5a3987e8768cc28cf11ba775e785a5f",
+    "file": "8.18.3/freetype-2.14.3.tar.xz"
+  },
+  {
+    "group": "8.18.3",
+    "name": "fribidi",
+    "version": "1.0.16",
+    "url": "https://github.com/fribidi/fribidi/releases/download/v1.0.16/fribidi-1.0.16.tar.xz",
+    "sha256": "1b1cde5b235d40479e91be2f0e88a309e3214c8ab470ec8a2744d82a5a9ea05c",
+    "file": "8.18.3/fribidi-1.0.16.tar.xz"
+  },
+  {
+    "group": "8.18.3",
+    "name": "glib",
+    "version": "2.89.0",
+    "url": "https://download.gnome.org/sources/glib/2.89/glib-2.89.0.tar.xz",
+    "sha256": "205bf5dab175de68f11e33be7bb36d4ad4c5a5097d8c0c88a8682b257b6293dc",
+    "file": "8.18.3/glib-2.89.0.tar.xz"
+  },
+  {
+    "group": "8.18.3",
+    "name": "harfbuzz",
+    "version": "14.2.1",
+    "url": "https://github.com/harfbuzz/harfbuzz/releases/download/14.2.1/harfbuzz-14.2.1.tar.xz",
+    "sha256": "a54a5d8e9380a41fbb762ce367bcbf7704792dfca0d93f1bbca86c5a57902e0e",
+    "file": "8.18.3/harfbuzz-14.2.1.tar.xz"
+  },
+  {
+    "group": "8.18.3",
+    "name": "heif",
+    "version": "1.23.0",
+    "url": "https://github.com/strukturag/libheif/releases/download/v1.23.0/libheif-1.23.0.tar.gz",
+    "sha256": "4c9182b18897617182eed12ab5eb9f9d855b3aa3a736d6bdb31abc034ec7d393",
+    "file": "8.18.3/heif-1.23.0.tar.gz"
+  },
+  {
+    "group": "8.18.3",
+    "name": "highway",
+    "version": "1.4.0",
+    "url": "https://github.com/google/highway/releases/download/1.4.0/highway-1.4.0.tar.gz",
+    "sha256": "36f672ab48ddb3c8555e9e89e16fe400cd7d16c6eb455a1a3d0c146a63ababdc",
+    "file": "8.18.3/highway-1.4.0.tar.gz"
+  },
+  {
+    "group": "8.18.3",
+    "name": "imagequant",
+    "version": "2.4.1",
+    "url": "https://github.com/lovell/libimagequant/archive/v2.4.1.tar.gz",
+    "sha256": "f924806f4c7be7b4f56287fb935726f5a2db79808b1d4a640849cea5265cdf8d",
+    "file": "8.18.3/imagequant-2.4.1.tar.gz",
+    "upstreamArchiveSha256": "da531249038e17f0674cef6e5d4100e43bf8cdfb4f330bc2a590bff50cd91913",
+    "sourceGit": {
+      "url": "https://github.com/lovell/libimagequant.git",
+      "commit": "4e82d9492db228a7a2057c442f7a6eb40508a0eb",
+      "prefix": "libimagequant-2.4.1/"
+    },
+    "archiveNote": "Exported from the last source commit before both DLL releases. The v2.4.1 tag moved in July 2026; do not use its current target."
+  },
+  {
+    "group": "8.18.3",
+    "name": "lcms",
+    "version": "2.19.1",
+    "url": "https://downloads.sourceforge.net/project/lcms/lcms/2.19.1/lcms2-2.19.1.tar.gz",
+    "sha256": "bfc54f7bab59fbc921012014a8032e4cba4abd46db47d46b76416a8c0b2815c8",
+    "file": "8.18.3/lcms-2.19.1.tar.gz"
+  },
+  {
+    "group": "8.18.3",
+    "name": "mozjpeg",
+    "version": "0826579",
+    "url": "https://github.com/mozilla/mozjpeg/tarball/0826579/mozjpeg-0826579.tar.gz",
+    "sha256": "375d19302f09dfa267651dcfd3ddb62862ab3a488862b6168ce755bb1a925860",
+    "file": "8.18.3/mozjpeg-0826579.tar.gz"
+  },
+  {
+    "group": "8.18.3",
+    "name": "pango",
+    "version": "1.57.1",
+    "url": "https://download.gnome.org/sources/pango/1.57/pango-1.57.1.tar.xz",
+    "sha256": "e65d6d117080dc3aeeb7d8b4b3b518f7383aa2e6cfce23117c623cd624764c2f",
+    "file": "8.18.3/pango-1.57.1.tar.xz"
+  },
+  {
+    "group": "8.18.3",
+    "name": "pixman",
+    "version": "0.46.4",
+    "url": "https://cairographics.org/releases/pixman-0.46.4.tar.gz",
+    "sha256": "d09c44ebc3bd5bee7021c79f922fe8fb2fb57f7320f55e97ff9914d2346a591c",
+    "file": "8.18.3/pixman-0.46.4.tar.gz"
+  },
+  {
+    "group": "8.18.3",
+    "name": "png",
+    "version": "1.6.58",
+    "url": "https://downloads.sourceforge.net/project/libpng/libpng16/1.6.58/libpng-1.6.58.tar.xz",
+    "sha256": "28eb403f51f0f7405249132cecfe82ea5c0ef97f1b32c5a65828814ae0d34775",
+    "file": "8.18.3/png-1.6.58.tar.xz"
+  },
+  {
+    "group": "8.18.3",
+    "name": "proxy-libintl",
+    "version": "0.5",
+    "url": "https://github.com/frida/proxy-libintl/archive/0.5.tar.gz",
+    "sha256": "f7a1cbd7579baaf575c66f9d99fb6295e9b0684a28b095967cfda17857595303",
+    "file": "8.18.3/proxy-libintl-0.5.tar.gz"
+  },
+  {
+    "group": "8.18.3",
+    "name": "rsvg",
+    "version": "2.62.3",
+    "url": "https://download.gnome.org/sources/librsvg/2.62/librsvg-2.62.3.tar.xz",
+    "sha256": "7eb449b2722a768021356f66dfee3202c229b54ed4e6a70ce40c090e97ff16f2",
+    "file": "8.18.3/rsvg-2.62.3.tar.xz"
+  },
+  {
+    "group": "8.18.3",
+    "name": "tiff",
+    "version": "732665c",
+    "url": "https://gitlab.com/libtiff/libtiff/-/archive/732665c/libtiff-732665c.tar.gz",
+    "sha256": "b813a2c2263e9ad3dde4f32ca08f9b2c8f4b33df2b264b16d98a45e027586884",
+    "file": "8.18.3/tiff-732665c.tar.gz",
+    "upstreamArchiveSha256": "736e375ec80dc83687d035c5daabca6bd46808297add9bddf7ae874694f43e47",
+    "sourceGit": {
+      "url": "https://gitlab.com/libtiff/libtiff.git",
+      "commit": "732665c2c8785cec3e1f46ba9908575f0f3a8059",
+      "prefix": "libtiff-732665c/"
+    },
+    "archiveNote": "Exported from the fixed commit specified by the official v8.18.3 build README; GitLab archive endpoint unavailable."
+  },
+  {
+    "group": "8.18.3",
+    "name": "uhdr",
+    "version": "13a058f",
+    "url": "https://github.com/google/libultrahdr/tarball/13a058f/uhdr-13a058f.tar.gz",
+    "sha256": "c910b8137e8ebff4a6f7d4bc579ea96549fee71984dea1a23a3effd266a29b1b",
+    "file": "8.18.3/uhdr-13a058f.tar.gz"
+  },
+  {
+    "group": "8.18.3",
+    "name": "vips",
+    "version": "8.18.3",
+    "url": "https://github.com/libvips/libvips/releases/download/v8.18.3/vips-8.18.3.tar.xz",
+    "sha256": "f41285b61bfb495605494f074ca341f7791a1d406e2f157dcea606ef1ae1b146",
+    "file": "8.18.3/vips-8.18.3.tar.xz"
+  },
+  {
+    "group": "8.18.3",
+    "name": "webp",
+    "version": "1.6.0",
+    "url": "https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-1.6.0.tar.gz",
+    "sha256": "e4ab7009bf0629fd11982d4c2aa83964cf244cffba7347ecd39019a9e38c4564",
+    "file": "8.18.3/webp-1.6.0.tar.gz"
+  },
+  {
+    "group": "8.18.3",
+    "name": "xml2",
+    "version": "2.15.3",
+    "url": "https://download.gnome.org/sources/libxml2/2.15/libxml2-2.15.3.tar.xz",
+    "sha256": "78262a6e7ac170d6528ebfe2efccdf220191a5af6a6cd61ea4a9a9a5042c7a07",
+    "file": "8.18.3/xml2-2.15.3.tar.xz"
+  },
+  {
+    "group": "8.18.3",
+    "name": "zlib-ng",
+    "version": "2.3.3",
+    "url": "https://github.com/zlib-ng/zlib-ng/archive/2.3.3.tar.gz",
+    "sha256": "f9c65aa9c852eb8255b636fd9f07ce1c406f061ec19a2e7d508b318ca0c907d1",
+    "file": "8.18.3/zlib-ng-2.3.3.tar.gz"
+  },
+  {
+    "group": "8.15.3",
+    "name": "aom",
+    "version": "3.9.1",
+    "url": "https://storage.googleapis.com/aom-releases/libaom-3.9.1.tar.gz",
+    "sha256": "dba99fc1c28aaade28dda59821166b2fa91c06162d1bc99fde0ddaad7cecc50e",
+    "file": "8.15.3/aom-3.9.1.tar.gz"
+  },
+  {
+    "group": "8.15.3",
+    "name": "archive",
+    "version": "3.7.4",
+    "url": "https://github.com/libarchive/libarchive/releases/download/v3.7.4/libarchive-3.7.4.tar.xz",
+    "sha256": "f887755c434a736a609cbd28d87ddbfbe9d6a3bb5b703c22c02f6af80a802735",
+    "file": "8.15.3/archive-3.7.4.tar.xz"
+  },
+  {
+    "group": "8.15.3",
+    "name": "cairo",
+    "version": "1.18.0",
+    "url": "https://cairographics.org/releases/cairo-1.18.0.tar.xz",
+    "sha256": "243a0736b978a33dee29f9cca7521733b78a65b5418206fef7bd1c3d4cf10b64",
+    "file": "8.15.3/cairo-1.18.0.tar.xz"
+  },
+  {
+    "group": "8.15.3",
+    "name": "cgif",
+    "version": "0.4.1",
+    "url": "https://github.com/dloebl/cgif/archive/v0.4.1.tar.gz",
+    "sha256": "8666f9c5f8123d1c22137a6dd714502a330377fb74e2007621926fe4258529d5",
+    "file": "8.15.3/cgif-0.4.1.tar.gz"
+  },
+  {
+    "group": "8.15.3",
+    "name": "exif",
+    "version": "0.6.24",
+    "url": "https://github.com/libexif/libexif/releases/download/v0.6.24/libexif-0.6.24.tar.bz2",
+    "sha256": "d47564c433b733d83b6704c70477e0a4067811d184ec565258ac563d8223f6ae",
+    "file": "8.15.3/exif-0.6.24.tar.bz2"
+  },
+  {
+    "group": "8.15.3",
+    "name": "expat",
+    "version": "2.6.2",
+    "url": "https://downloads.sourceforge.net/project/expat/expat/2.6.2/expat-2.6.2.tar.bz2",
+    "sha256": "9c7c1b5dcbc3c237c500a8fb1493e14d9582146dd9b42aa8d3ffb856a3b927e0",
+    "file": "8.15.3/expat-2.6.2.tar.bz2"
+  },
+  {
+    "group": "8.15.3",
+    "name": "ffi",
+    "version": "3.4.6",
+    "url": "https://github.com/libffi/libffi/releases/download/v3.4.6/libffi-3.4.6.tar.gz",
+    "sha256": "b0dea9df23c863a7a50e825440f3ebffabd65df1497108e5d437747843895a4e",
+    "file": "8.15.3/ffi-3.4.6.tar.gz"
+  },
+  {
+    "group": "8.15.3",
+    "name": "fontconfig",
+    "version": "2.15.0",
+    "url": "https://www.freedesktop.org/software/fontconfig/release/fontconfig-2.15.0.tar.xz",
+    "sha256": "63a0658d0e06e0fa886106452b58ef04f21f58202ea02a94c39de0d3335d7c0e",
+    "file": "8.15.3/fontconfig-2.15.0.tar.xz"
+  },
+  {
+    "group": "8.15.3",
+    "name": "freetype",
+    "version": "2.13.2",
+    "url": "https://downloads.sourceforge.net/project/freetype/freetype2/2.13.2/freetype-2.13.2.tar.xz",
+    "sha256": "12991c4e55c506dd7f9b765933e62fd2be2e06d421505d7950a132e4f1bb484d",
+    "file": "8.15.3/freetype-2.13.2.tar.xz"
+  },
+  {
+    "group": "8.15.3",
+    "name": "fribidi",
+    "version": "1.0.15",
+    "url": "https://github.com/fribidi/fribidi/releases/download/v1.0.15/fribidi-1.0.15.tar.xz",
+    "sha256": "0bbc7ff633bfa208ae32d7e369cf5a7d20d5d2557a0b067c9aa98bcbf9967587",
+    "file": "8.15.3/fribidi-1.0.15.tar.xz"
+  },
+  {
+    "group": "8.15.3",
+    "name": "glib",
+    "version": "2.81.1",
+    "url": "https://download.gnome.org/sources/glib/2.81/glib-2.81.1.tar.xz",
+    "sha256": "629365cde729a7b76b062fc218a109a84bbc4668ca0c92ab590ecccf969f824c",
+    "file": "8.15.3/glib-2.81.1.tar.xz"
+  },
+  {
+    "group": "8.15.3",
+    "name": "harfbuzz",
+    "version": "9.0.0",
+    "url": "https://github.com/harfbuzz/harfbuzz/releases/download/9.0.0/harfbuzz-9.0.0.tar.xz",
+    "sha256": "a41b272ceeb920c57263ec851604542d9ec85ee3030506d94662067c7b6ab89e",
+    "file": "8.15.3/harfbuzz-9.0.0.tar.xz"
+  },
+  {
+    "group": "8.15.3",
+    "name": "heif",
+    "version": "1.18.2",
+    "url": "https://github.com/strukturag/libheif/releases/download/v1.18.2/libheif-1.18.2.tar.gz",
+    "sha256": "c4002a622bec9f519f29d84bfdc6024e33fd67953a5fb4dc2c2f11f67d5e45bf",
+    "file": "8.15.3/heif-1.18.2.tar.gz"
+  },
+  {
+    "group": "8.15.3",
+    "name": "highway",
+    "version": "1.2.0",
+    "url": "https://github.com/google/highway/releases/download/1.2.0/highway-1.2.0.tar.gz",
+    "sha256": "58e9d5d41d6573ad15245ad76aec53a69499ca7480c092d899c4424812ed906f",
+    "file": "8.15.3/highway-1.2.0.tar.gz"
+  },
+  {
+    "group": "8.15.3",
+    "name": "imagequant",
+    "version": "2.4.1",
+    "url": "https://github.com/lovell/libimagequant/archive/v2.4.1.tar.gz",
+    "sha256": "f924806f4c7be7b4f56287fb935726f5a2db79808b1d4a640849cea5265cdf8d",
+    "file": "8.15.3/imagequant-2.4.1.tar.gz",
+    "upstreamArchiveSha256": "da531249038e17f0674cef6e5d4100e43bf8cdfb4f330bc2a590bff50cd91913",
+    "sourceGit": {
+      "url": "https://github.com/lovell/libimagequant.git",
+      "commit": "4e82d9492db228a7a2057c442f7a6eb40508a0eb",
+      "prefix": "libimagequant-2.4.1/"
+    },
+    "archiveNote": "Exported from the last source commit before both DLL releases. The v2.4.1 tag moved in July 2026; do not use its current target."
+  },
+  {
+    "group": "8.15.3",
+    "name": "lcms",
+    "version": "2.16",
+    "url": "https://downloads.sourceforge.net/project/lcms/lcms/2.16/lcms2-2.16.tar.gz",
+    "sha256": "d873d34ad8b9b4cea010631f1a6228d2087475e4dc5e763eb81acc23d9d45a51",
+    "file": "8.15.3/lcms-2.16.tar.gz"
+  },
+  {
+    "group": "8.15.3",
+    "name": "mozjpeg",
+    "version": "4.1.5",
+    "url": "https://github.com/mozilla/mozjpeg/archive/v4.1.5.tar.gz",
+    "sha256": "9fcbb7171f6ac383f5b391175d6fb3acde5e64c4c4727274eade84ed0998fcc1",
+    "file": "8.15.3/mozjpeg-4.1.5.tar.gz"
+  },
+  {
+    "group": "8.15.3",
+    "name": "pango",
+    "version": "1.54.0",
+    "url": "https://download.gnome.org/sources/pango/1.54/pango-1.54.0.tar.xz",
+    "sha256": "8a9eed75021ee734d7fc0fdf3a65c3bba51dfefe4ae51a9b414a60c70b2d1ed8",
+    "file": "8.15.3/pango-1.54.0.tar.xz"
+  },
+  {
+    "group": "8.15.3",
+    "name": "pixman",
+    "version": "0.43.4",
+    "url": "https://cairographics.org/releases/pixman-0.43.4.tar.gz",
+    "sha256": "a0624db90180c7ddb79fc7a9151093dc37c646d8c38d3f232f767cf64b85a226",
+    "file": "8.15.3/pixman-0.43.4.tar.gz"
+  },
+  {
+    "group": "8.15.3",
+    "name": "png",
+    "version": "1.6.43",
+    "url": "https://downloads.sourceforge.net/project/libpng/libpng16/1.6.43/libpng-1.6.43.tar.xz",
+    "sha256": "6a5ca0652392a2d7c9db2ae5b40210843c0bbc081cbd410825ab00cc59f14a6c",
+    "file": "8.15.3/png-1.6.43.tar.xz"
+  },
+  {
+    "group": "8.15.3",
+    "name": "proxy-libintl",
+    "version": "0.4",
+    "url": "https://github.com/frida/proxy-libintl/archive/0.4.tar.gz",
+    "sha256": "13ef3eea0a3bc0df55293be368dfbcff5a8dd5f4759280f28e030d1494a5dffb",
+    "file": "8.15.3/proxy-libintl-0.4.tar.gz"
+  },
+  {
+    "group": "8.15.3",
+    "name": "rsvg",
+    "version": "2.58.93",
+    "url": "https://download.gnome.org/sources/librsvg/2.58/librsvg-2.58.93.tar.xz",
+    "sha256": "f116eaf8196fc8261b0bbbdf996a4fe1bc97dc25664f953b328194d049a0dada",
+    "file": "8.15.3/rsvg-2.58.93.tar.xz"
+  },
+  {
+    "group": "8.15.3",
+    "name": "spng",
+    "version": "0.7.4",
+    "url": "https://github.com/randy408/libspng/archive/v0.7.4.tar.gz",
+    "sha256": "47ec02be6c0a6323044600a9221b049f63e1953faf816903e7383d4dc4234487",
+    "file": "8.15.3/spng-0.7.4.tar.gz"
+  },
+  {
+    "group": "8.15.3",
+    "name": "tiff",
+    "version": "4.6.0",
+    "url": "https://download.osgeo.org/libtiff/tiff-4.6.0.tar.xz",
+    "sha256": "e178649607d1e22b51cf361dd20a3753f244f022eefab1f2f218fc62ebaf87d2",
+    "file": "8.15.3/tiff-4.6.0.tar.xz"
+  },
+  {
+    "group": "8.15.3",
+    "name": "vips",
+    "version": "8.15.3",
+    "url": "https://github.com/libvips/libvips/releases/download/v8.15.3/vips-8.15.3.tar.xz",
+    "sha256": "3e27d9f536eafad64013958fe9e8a1964c90b564c731d49db7c1a1c11b1052a0",
+    "file": "8.15.3/vips-8.15.3.tar.xz"
+  },
+  {
+    "group": "8.15.3",
+    "name": "webp",
+    "version": "1.4.0",
+    "url": "https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-1.4.0.tar.gz",
+    "sha256": "61f873ec69e3be1b99535634340d5bde750b2e4447caa1db9f61be3fd49ab1e5",
+    "file": "8.15.3/webp-1.4.0.tar.gz"
+  },
+  {
+    "group": "8.15.3",
+    "name": "xml",
+    "version": "2.13.3",
+    "url": "https://download.gnome.org/sources/libxml2/2.13/libxml2-2.13.3.tar.xz",
+    "sha256": "0805d7c180cf09caad71666c7a458a74f041561a532902454da5047d83948138",
+    "file": "8.15.3/xml-2.13.3.tar.xz"
+  },
+  {
+    "group": "8.15.3",
+    "name": "zlib-ng",
+    "version": "2.2.1",
+    "url": "https://github.com/zlib-ng/zlib-ng/archive/2.2.1.tar.gz",
+    "sha256": "ec6a76169d4214e2e8b737e0850ba4acb806c69eeace6240ed4481b9f5c57cdf",
+    "file": "8.15.3/zlib-ng-2.2.1.tar.gz"
+  }
+]

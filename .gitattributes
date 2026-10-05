@@ -1,0 +1,2 @@
+# Preserve copied upstream notices; their formatting is maintained upstream.
+third-party/upstream/** -whitespace

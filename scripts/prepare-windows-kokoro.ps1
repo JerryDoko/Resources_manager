@@ -25,7 +25,7 @@ Download-Checked "https://www.python.org/ftp/python/3.13.7/python-3.13.7-embed-a
 Expand-Archive -Path $pythonArchive -DestinationPath $pythonDir -Force
 & python -m pip install --disable-pip-version-check --only-binary=:all: --no-compile --target $packages -r runtime/kokoro/requirements.txt
 if ($LASTEXITCODE -ne 0) { throw "Windows Python dependency installation failed." }
-# NumPy's official wheel includes the MSVC runtime needed by sherpa-onnx.
+# NumPy's official wheel includes the MSVC runtime needed by native dependencies.
 $msvc = Get-ChildItem (Join-Path $packages "numpy.libs") -Filter "msvcp140-*.dll" | Select-Object -First 1
 if (-not $msvc) { throw "Missing Microsoft C++ runtime in NumPy wheel." }
 Copy-Item $msvc.FullName (Join-Path $pythonDir "msvcp140.dll")
@@ -40,5 +40,5 @@ Write-Host "Model extracted; preparing portable bundle and checksums."
 & node scripts/prepare-kokoro.mjs --from $stage --windows
 if ($LASTEXITCODE -ne 0) { throw "Kokoro manifest preparation failed." }
 Write-Host "Checking embedded Windows Python imports."
-& runtime/kokoro/bundle/win32-x64/python/python.exe -c "import sherpa_onnx,numpy,opencc; print('Embedded Python imports OK')"
+& runtime/kokoro/bundle/win32-x64/python/python.exe -c "import onnxruntime,numpy,opencc; print('Embedded Python imports OK')"
 if ($LASTEXITCODE -ne 0) { throw "Embedded Windows Python cannot load Kokoro dependencies." }

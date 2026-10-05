@@ -3,7 +3,7 @@ import path from "path";
 import os from "os";
 import { randomUUID } from "crypto";
 
-export const VOICE_GUIDE_URL = "https://github.com/JerryDoko/Resources_manager/blob/main/docs/windows-voice-setup.md";
+export const VOICE_GUIDE_URL = "https://github.com/JerryDoko/Resources_manager/blob/windows-resources-manager/docs/windows-voice-setup.md";
 export const voiceHome = () => process.env.RM_KOKORO_INSTALL_ROOT || path.join(process.env.RESOURCES_MANAGER_DATA || path.join(process.cwd(), "data"), "kokoro-runtime");
 export type VoiceMode = "quiet" | "balanced" | "fast" | "custom";
 export function resolveVoicePerformance(value: { mode?: unknown; threads?: unknown } = {}, cores = os.availableParallelism()) {
