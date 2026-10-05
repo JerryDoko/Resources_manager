@@ -1,6 +1,10 @@
 # macOS 声音包与听书性能设置
 
-开发分支：`macos/kokoro-package-performance`。本功能尚未发布安装包，不改变已发布的 v1.1.11。
+开发分支：`macos/kokoro-package-performance`。v1.2.0 起采用开源分发方式；不改变旧版已发布包。
+
+公开包不包含 Python、sherpa-onnx 二进制和任何模型数据。全新安装时需先安装
+Python 3.11+，点击「下载独立听书引擎」并确认第三方许可，再导入声音包。
+已有用户目录内的旧运行时继续可用。目录中带 catalog.json 的 Books 是书库，不是模型。
 
 ## 启动
 

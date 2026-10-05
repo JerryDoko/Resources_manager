@@ -1,20 +1,9 @@
 import type { Metadata } from "next";
-import { Fraunces, DM_Sans } from "next/font/google";
 import { LibraryProvider } from "@/lib/store";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { UpdateNotifier } from "@/components/update/UpdateNotifier";
 import { AiConfirmationPrompt } from "@/components/ai/AiConfirmationPrompt";
 import "./globals.css";
-
-const fraunces = Fraunces({
-  variable: "--font-fraunces",
-  subsets: ["latin"],
-});
-
-const dmSans = DM_Sans({
-  variable: "--font-dm-sans",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "Resources Manager",
@@ -29,7 +18,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
-      <body className={`${fraunces.variable} ${dmSans.variable} antialiased bg-transparent`}>
+      <body className="antialiased bg-transparent">
         <LibraryProvider>
           {children}
           <SettingsPanel />

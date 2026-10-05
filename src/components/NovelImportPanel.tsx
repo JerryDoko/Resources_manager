@@ -5,16 +5,18 @@ import { NovelConnectionError, novelFetch, novelRequest } from "@/lib/novel/clie
 import { useLibrary } from "@/lib/store";
 import { openNovel } from "@/lib/novel/open-reader";
 import { NovelPerformanceSettings } from "@/components/NovelPerformanceSettings";
+import type { WebExtension } from "@/lib/novel/web-extensions";
 type Preview={token:string;books:{title:string;chapters:number}[];totalChapters:number};
 export function NovelImportPanel({inline=false}:{inline?:boolean}){
   const {refresh}=useLibrary();
   const [open,setOpen]=useState(false),[profile,setProfile]=useState(""),[url,setUrl]=useState(""),[directory,setDirectory]=useState(""),[busy,setBusy]=useState(false),[message,setMessage]=useState(""),[preview,setPreview]=useState<Preview|null>(null);
   const [localPath,setLocalPath]=useState("");
   const [runtime,setRuntime]=useState(false);
+  const [engine,setEngine]=useState(false),[extension,setExtension]=useState<WebExtension|null>(null);
   const [voicePath,setVoicePath]=useState(""),[model,setModel]=useState("");
   const [desktop,setDesktop]=useState(false);
   const upload=useRef<HTMLInputElement>(null);
-  const loadContext=async()=>{const r=await novelFetch("/api/novel?action=context"),d=await r.json();if(!r.ok)throw new Error(d.error);setProfile(d.profileId);setRuntime(d.available);setModel(d.model);};
+  const loadContext=async()=>{const r=await novelFetch("/api/novel?action=context"),d=await r.json();if(!r.ok)throw new Error(d.error);setProfile(d.profileId);setRuntime(d.available);setModel(d.model);setEngine(d.engineAvailable);setExtension(d.webExtension);};
   useEffect(()=>{setDesktop(!!window.rmDesktop?.chooseNovel);if(inline)void loadContext().catch(e=>setMessage(e instanceof Error?e.message:String(e)));},[inline]);
   const run=async(fn:()=>Promise<void>)=>{setBusy(true);setMessage("");try{await fn();}catch(e){if(e instanceof NovelConnectionError)setProfile("");setMessage(e instanceof Error?e.message:String(e));}finally{setBusy(false);}};
   const show=()=>{setOpen(true);void run(loadContext);};
@@ -31,6 +33,12 @@ export function NovelImportPanel({inline=false}:{inline?:boolean}){
     for(;;){await new Promise(r=>setTimeout(r,500));const response=await novelFetch(`/api/novel?action=runtime-status&profileId=${encodeURIComponent(profile)}`);const p=await response.json();if(!response.ok)throw new Error(p.error);setMessage(`${p.phase}${p.total?` · ${Math.floor(p.done/p.total*100)}%`:""}`);if(p.error)throw new Error(p.error);if(!p.running)break;}
     await loadContext();setMessage("声音包安装完成 · 书籍与进度未修改");
   });
+  const installEngine=()=>void run(async()=>{
+    if(!window.confirm("从 PyPI 下载独立听书引擎？它包含 sherpa-onnx 及 eSpeak GPL 组件，按其各自许可证提供，不属于本项目 MIT 授权。安装包本身不携带此引擎。"))return;
+    await novelRequest(profile,"install-engine",{confirmed:true});
+    for(;;){await new Promise(r=>setTimeout(r,500));const r=await novelFetch(`/api/novel?action=runtime-status&profileId=${encodeURIComponent(profile)}`),p=await r.json();if(!r.ok)throw new Error(p.error);setMessage(p.phase);if(p.error)throw new Error(p.error);if(!p.running)break;}
+    await loadContext();setMessage("听书引擎已安装，可以导入声音包");
+  });
   const button="inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm disabled:opacity-40";
   return <>
     {!inline&&<button className={button} onClick={show}><BookPlus size={17}/>小说导入</button>}
@@ -41,7 +49,10 @@ export function NovelImportPanel({inline=false}:{inline?:boolean}){
       <fieldset disabled={busy||!profile} className="space-y-5 disabled:opacity-60">
         <div className="flex flex-wrap items-center gap-3"><h3 className="mr-auto text-sm font-medium">本地文件</h3><input ref={upload} type="file" accept=".txt,.epub" aria-label="选择本地小说文件" className="hidden" onChange={e=>{const file=e.target.files?.[0];if(file)uploadFile(file);e.target.value="";}}/><button className={button} onClick={localImport}><FolderOpen size={16}/>导入 TXT / EPUB</button></div>
         {!desktop&&<details className="text-xs text-[var(--ink-muted)]"><summary className="cursor-pointer">通过本机路径导入</summary><input aria-label="本地小说路径" value={localPath} onChange={e=>setLocalPath(e.target.value)} placeholder="TXT / EPUB 文件路径" className="mt-2 w-full rounded-lg border p-2"/></details>}
-        <div className="space-y-2"><label className="block text-sm font-medium" htmlFor={inline?"novel-inline-url":"novel-url"}>从网页导入</label><div className="flex flex-wrap gap-2"><input id={inline?"novel-inline-url":"novel-url"} type="url" value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://…" className="min-w-0 flex-1 basis-56 rounded-lg border p-2"/><button className={button} disabled={!url.trim()} onClick={()=>importWeb(false)}>导入网页</button><button className={button} disabled={!url.trim()} onClick={()=>importWeb(true)}>导入并阅读</button></div></div>
+        <details className="border-t border-[var(--line)] pt-4"><summary className="cursor-pointer text-sm font-medium">网页扩展 · {extension?extension.name:"未安装"}</summary><div className="mt-3 space-y-3">
+          <label className={`${button} cursor-pointer`}><Upload size={16}/>安装网页扩展<input aria-label="网页扩展 JSON" className="hidden" type="file" accept=".json,application/json" onChange={e=>{const f=e.target.files?.[0];if(f)void run(async()=>{if(f.size>32*1024)throw new Error("扩展不能超过 32 KB");const value=JSON.parse(await f.text());if(!window.confirm(`安装网页扩展 ${value.name||""}？\n允许访问：${Array.isArray(value.origins)?value.origins.join("，"):"无效"}\n仅可导入你有权使用的内容；声明不代表应用已核验授权。`))return;await novelRequest(profile,"extension-install",{extension:value,confirmed:true});await loadContext();setMessage("网页扩展已安装到当前工作区");});e.target.value="";}}/></label>
+          {extension&&<><div className="flex flex-wrap items-center gap-3 text-xs text-[var(--ink-muted)]"><span>{extension.origins.join(" · ")}</span><a href={extension.authorization.reference} target="_blank" rel="noreferrer">来源授权声明</a><button className={button} onClick={()=>void run(async()=>{await novelRequest(profile,"extension-remove");await loadContext();setMessage("网页扩展已移除，已保存的本地书籍未修改");})}>移除扩展</button></div><div className="flex flex-wrap gap-2"><input aria-label="授权章节链接" type="url" value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://…" className="min-w-0 flex-1 basis-56 rounded-lg border p-2"/><button className={button} disabled={!url.trim()} onClick={()=>importWeb(false)}>导入网页</button><button className={button} disabled={!url.trim()} onClick={()=>importWeb(true)}>导入并阅读</button></div></>}
+        </div></details>
         <details className="border-t border-[var(--line)] pt-4"><summary className="cursor-pointer text-sm font-medium">旧书迁入与备份</summary><div className="mt-3 space-y-4">
         <div className="space-y-2 border-t border-[var(--line)] pt-4"><h3 className="text-sm font-medium">迁入听页书库</h3><input aria-label="听页 Books 目录" value={directory} onChange={e=>{setDirectory(e.target.value);setPreview(null);}} placeholder="听页 Books 目录" className="w-full rounded-lg border p-2"/><button className={button} onClick={chooseLegacy}><FolderOpen size={16}/>选择目录并预览</button>
           {preview&&<div className="space-y-2 text-sm"><p>{preview.books.length} 本 · {preview.totalChapters} 章</p><ul className="max-h-32 overflow-auto">{preview.books.map((b,i)=><li key={i} className="truncate">{b.title} · {b.chapters} 章</li>)}</ul><button className={button} onClick={()=>void run(async()=>{const d=await novelRequest<{created:number;reused:number}>(profile,"legacy-import",{token:preview.token});await refresh();setMessage(`新增 ${d.created} 本，已有 ${d.reused} 本；原书库未修改`);setPreview(null);})}>确认复制到当前工作区</button></div>}
@@ -50,9 +61,10 @@ export function NovelImportPanel({inline=false}:{inline?:boolean}){
         </div></details>
         <details className="border-t border-[var(--line)] pt-4 text-sm"><summary className="cursor-pointer font-medium">听书声音包 · {runtime?"已安装":"未安装"}</summary><div className="mt-3 space-y-3">
           {runtime&&<p className="text-[var(--ink-muted)]">{model}</p>}
+          {!engine&&<div className="flex flex-wrap items-center gap-3"><button className={button} onClick={installEngine}><Download size={16}/>下载独立听书引擎</button><a href="https://www.python.org/downloads/" target="_blank" rel="noreferrer" className="text-xs text-[var(--ink-muted)]">Python 3.11+</a></div>}
           <label className="block space-y-2"><span>Kokoro 模型目录</span><input aria-label="Kokoro 模型目录" value={voicePath} onChange={e=>setVoicePath(e.target.value)} placeholder="解压后的 Kokoro v1.1 中英模型目录" className="w-full min-w-0 rounded-lg border border-[var(--line)] bg-white p-2"/></label>
           <div className="flex flex-wrap gap-2">{desktop&&<button className={button} onClick={()=>void run(async()=>{const chosen=await window.rmDesktop?.chooseFolder?.("导入声音包：选择解压后的 Kokoro 模型目录（不是 Books）");if(chosen)setVoicePath(chosen);})}><FolderOpen size={16}/>选择声音包目录</button>}
-            <button className={button} disabled={!voicePath.trim()} onClick={()=>install(true)}><Upload size={16}/>导入声音包</button><button className={button} onClick={()=>install(false)}><Download size={16}/>下载默认完整版</button>
+            <button className={button} disabled={!engine||!voicePath.trim()} onClick={()=>install(true)}><Upload size={16}/>导入声音包</button><button className={button} disabled={!engine} onClick={()=>install(false)}><Download size={16}/>下载默认完整版</button>
             <a className={button} href="https://k2-fsa.github.io/sherpa/onnx/tts/all/Chinese-English/kokoro-multi-lang-v1_1.html" target="_blank" rel="noreferrer"><ExternalLink size={16}/>完整版下载</a></div>
         </div></details>
       </fieldset>

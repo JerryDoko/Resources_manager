@@ -5,6 +5,7 @@ import fs from "node:fs";
 import { prepareSpeech } from "../../src/lib/novel/narration";
 import { splitChunks, splitChapters, resolvePosition } from "../../src/lib/novel/chunks";
 import { parseWebChapter, normalizeURL, publicAddress } from "../../src/lib/novel/web-import";
+import { validateWebExtension } from "../../src/lib/novel/web-extensions";
 const fixtures=JSON.parse(fs.readFileSync("tests/novel/fixtures/narration.json","utf8")) as {name:string;input:string;expected:string}[];
 for(const fixture of fixtures)test(`朗读规则: ${fixture.name}`,()=>{assert.equal(prepareSpeech(fixture.input),fixture.expected);assert.equal(prepareSpeech(prepareSpeech(fixture.input)),fixture.expected);});
 test("Python 与 TypeScript 的18个规则一致",()=>{
@@ -22,7 +23,9 @@ test("Unicode 原文锚点和分段重定位",()=>{
   assert.equal(splitChunks("＊＊＊ —— ……")[0].speech,"");
 });
 test("固定网页提取保留对白、正文作者字样和下一章",()=>{
-  const html='<html><head><meta property="og:novel:book_name" content="样例书"></head><body><a id="info_url" href="/book/3009/">样例书</a><h1>第一章</h1><div id="booktxt"><p>他说：“你先回去，明天我们再谈。”</p><p>作者走进屋里，推荐了一本他珍藏多年的书，窗外雨声渐渐停了。</p><script>bad()</script><div class="ads">广告</div></div><a id="next_url" href="/read/3009/2.html">下一章</a></body></html>';
-  const c=parseWebChapter(html,"https://example.org/read/3009/1.html");assert.ok(c.text.includes("作者走进屋里"));assert.ok(c.text.includes("“你先回去"));assert.ok(!c.text.includes("bad()"));assert.equal(c.nextURL,"https://example.org/read/3009/2.html");
+  const html='<html><body><a rel="index" href="/book/3009/">样例书</a><h1>第一章</h1><article><p>他说：“你先回去，明天我们再谈。”</p><p>作者走进屋里，推荐了一本他珍藏多年的书，窗外雨声渐渐停了。</p><script>bad()</script></article><a rel="next" href="/read/3009/2.html">下一章</a></body></html>';
+  const extension=validateWebExtension({format:"resources-manager.web-novel.v1",id:"test",name:"原创样例",version:"1",license:"MIT",authorization:{basis:"own-content",statement:"此测试网页完全是本项目原创的测试内容，不包含第三方小说。",reference:"https://example.org/rights"},origins:["https://example.org"],selectors:{content:"article",title:"h1",bookTitle:"a[rel=index]",bookLink:"a[rel=index]",next:"a[rel=next]"}});
+  const c=parseWebChapter(html,"https://example.org/read/3009/1.html",extension);assert.ok(c.text.includes("作者走进屋里"));assert.ok(c.text.includes("“你先回去"));assert.ok(!c.text.includes("bad()"));assert.equal(c.nextURL,"https://example.org/read/3009/2.html");
+  assert.throws(()=>parseWebChapter(html.replace('/read/3009/2.html','https://other.example/2'),"https://example.org/read/3009/1.html",extension),/未授权/);
 });
 test("网页 URL 与内网限制",()=>{for(const address of ["127.0.0.1","192.168.1.1","10.0.0.2","169.254.169.254","::1","::ffff:127.0.0.1"])assert.equal(publicAddress(address),false,address);assert.equal(publicAddress("8.8.8.8"),true);assert.throws(()=>normalizeURL("file:///etc/passwd"));assert.throws(()=>normalizeURL("https://user:pass@example.org"));});

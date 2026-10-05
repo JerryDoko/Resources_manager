@@ -4,7 +4,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { getPerformance, normalizePerformance, performanceFile, savePerformance, threadLimit } from "../../src/lib/novel/performance-settings";
-import { findModelDirectory } from "../../src/lib/novel/runtime-install";
+import { findModelDirectory, installRuntime, installEngine } from "../../src/lib/novel/runtime-install";
+import { kokoroStatus } from "../../src/lib/novel/tts-service";
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "rm-performance-tests-"));
 process.env.RESOURCES_MANAGER_DATA = path.join(temp, "data");
@@ -35,4 +36,12 @@ test("模型目录不依赖 catalog，识别解压包、model 子目录并拒绝
   assert.equal(findModelDirectory(path.dirname(full)), full); assert.equal(findModelDirectory(full), full);
   const bundle = path.join(temp, "bundle", "model"); fs.mkdirSync(bundle, { recursive: true }); fs.writeFileSync(path.join(bundle, "model.int8.onnx"), "fixture");
   assert.equal(findModelDirectory(path.dirname(bundle)), bundle);
+});
+test("公开包缺少引擎时拒绝模型导入，下载引擎必须显式确认",()=>{
+  const root=process.env.RM_KOKORO_ROOT,installed=process.env.RM_KOKORO_INSTALL_ROOT;
+  try{
+    process.env.RM_KOKORO_ROOT=path.join(temp,"empty-runtime");process.env.RM_KOKORO_INSTALL_ROOT=path.join(temp,"empty-installed");
+    assert.equal(kokoroStatus().engineAvailable,false);assert.equal(kokoroStatus().available,false);
+    assert.throws(()=>installRuntime(temp),/先下载独立听书引擎/);assert.throws(()=>installEngine(false),/确认/);
+  }finally{if(root===undefined)delete process.env.RM_KOKORO_ROOT;else process.env.RM_KOKORO_ROOT=root;if(installed===undefined)delete process.env.RM_KOKORO_INSTALL_ROOT;else process.env.RM_KOKORO_INSTALL_ROOT=installed;}
 });

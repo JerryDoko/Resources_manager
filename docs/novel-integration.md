@@ -1,5 +1,8 @@
 # 听页整合实施与验收记录
 
+> 以下包含 v1.1.11 的历史验收记录。v1.2.0 开源版不再携带语音二进制或模型，
+> 网页读取改为默认关闭的用户安装扩展；当前分发边界见 README 与 THIRD-PARTY-NOTICES。
+
 执行依据：听页 `docs/resources-manager-novel-integration-plan.md`（2026-10-04）。
 基线：Resources Manager 1.1.10，保留已有工作区删除/迁移的未提交修复。
 

@@ -18,8 +18,8 @@
   --line: rgba(148, 163, 184, 0.35);
   --shadow: 0 8px 32px rgba(15, 23, 42, 0.08);
   --radius: 16px;
-  --font-display: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", var(--font-fraunces), serif;
-  --font-body: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", var(--font-dm-sans), sans-serif;
+  --font-display: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --font-body: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
 }
 
 * {

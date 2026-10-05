@@ -168,7 +168,10 @@ function rebuildNativeModules() {
 
 function prepareStandalone() {
   console.log("[pack] next build …");
-  execSync("npx next build", { cwd: ROOT, stdio: "inherit", env: process.env });
+  if (process.argv.includes("--use-build")) {
+    if (!fs.existsSync(path.join(ROOT,".next/BUILD_ID"))) throw new Error("需要先成功执行 npm run build");
+    console.log("[pack] 使用现有构建（调用者须确认源码未再改变）");
+  } else execSync("npx next build", { cwd: ROOT, stdio: "inherit", env: process.env });
 
   const standalone = path.join(ROOT, ".next", "standalone");
   if (!fs.existsSync(standalone)) {
@@ -196,6 +199,15 @@ function prepareStandalone() {
     throw new Error("standalone 缺少 node_modules，打包会无法启动");
   }
 
+  // Use the app's native sharp instead of redistributing unused WASM/duplicate binaries.
+  if (process.platform === "darwin") {
+    const native = path.join(SERVER_OUT, "node_modules", "@img", `sharp-darwin-${process.arch}`);
+    if (!fs.existsSync(native)) throw new Error("缺少当前平台的原生 sharp");
+    rmrf(path.join(SERVER_OUT, "node_modules", "@img", "sharp-wasm32"));
+    rmrf(path.join(SERVER_OUT, "node_modules", "next", "node_modules", "sharp"));
+    rmrf(path.join(SERVER_OUT, "node_modules", "next", "node_modules", "@img"));
+  }
+
   console.log(`[pack] standalone 已就绪 → ${SERVER_OUT}`);
 }
 
@@ -206,6 +218,7 @@ async function main() {
   rebuildNativeModules();
   prepareStandalone();
   verifyNativeRuntime();
+  execFileSync(process.execPath,[path.join(ROOT,"scripts/prepare-licenses.mjs")],{cwd:ROOT,stdio:"inherit"});
 
   console.log(`[pack] ${process.platform} 打包资源准备完成`);
 }

@@ -4,7 +4,7 @@ import https from "https";
 import { createHash } from "crypto";
 import { execFile } from "child_process";
 import { promisify } from "util";
-import { kokoroPaths,tts } from "./tts-service";
+import { kokoroPaths,kokoroStatus,tts } from "./tts-service";
 import { probeWorker } from "./worker-probe";
 import { benchmarkRunning } from "./runtime-benchmark";
 type Progress={running:boolean;phase:string;done:number;total:number;error:string};
@@ -71,14 +71,14 @@ export function installRuntime(directory?:string){
   if(directory!==undefined && (typeof directory!=="string" || !directory.trim()))throw new Error("声音包路径无效");
   const p=installation();if(p.running)throw new Error("声音包正在安装");
   if(benchmarkRunning() || tts().isBusy())throw new Error("请暂停朗读并等待生成 / 速度测试结束后再更换声音包");
+  if(!kokoroStatus().engineAvailable)throw new Error("请先下载独立听书引擎，再导入声音包");
+  const pythonSource=path.join(kokoroPaths().bundle,"python");
   Object.assign(p,{running:true,phase:"准备安装",done:0,total:0,error:""});
   void (async()=>{
     const dest=destination(),stage=dest+".partial",backup=dest+".previous";
     try{
       await fs.promises.rm(stage,{recursive:true,force:true});await fs.promises.mkdir(stage,{recursive:true});
-      const bundled=path.join(kokoroPaths().root,"bundle",target());
-      if(!fs.existsSync(path.join(bundled,"python")))throw new Error("缺少应用内置 Python 运行时，请重新安装 macOS 应用");
-      await fs.promises.cp(path.join(bundled,"python"),path.join(stage,"python"),{recursive:true,verbatimSymlinks:true});
+      await fs.promises.cp(pythonSource,path.join(stage,"python"),{recursive:true,verbatimSymlinks:true});
       if(directory){await copyModel(findModelDirectory(directory),stage);}
       else{
         const archive=path.join(stage,"model.tar.bz2");await download("https://api.github.com/repos/k2-fsa/sherpa-onnx/releases/assets/265069737",archive);
@@ -89,7 +89,8 @@ export function installRuntime(directory?:string){
         await fs.promises.rm(unpack,{recursive:true,force:true});await fs.promises.unlink(archive);
       }
       p.phase="校验模型并试读";
-      await probeWorker({python:path.join(stage,"python",process.platform==="win32"?"python.exe":"bin/python3"),worker:kokoroPaths().worker,model:path.join(stage,"model")},1,true);
+      const python=process.platform==="win32"&&fs.existsSync(path.join(stage,"python","Scripts","python.exe"))?"Scripts/python.exe":process.platform==="win32"?"python.exe":"bin/python3";
+      await probeWorker({python:path.join(stage,"python",python),worker:kokoroPaths().worker,model:path.join(stage,"model")},1,true);
       if(tts().isBusy())throw new Error("正在生成声音，请暂停后重试");
       tts().stop();
       await fs.promises.rm(backup,{recursive:true,force:true});
@@ -97,6 +98,31 @@ export function installRuntime(directory?:string){
       try{await fs.promises.rename(stage,dest);}catch(e){if(exists)await fs.promises.rename(backup,dest);throw e;}
       await fs.promises.rm(backup,{recursive:true,force:true});p.phase="安装完成";
     }catch(e){p.error=e instanceof Error?e.message:String(e);p.phase="安装失败，可重试";await fs.promises.rm(stage,{recursive:true,force:true});}
+    finally{p.running=false;}
+  })();return p;
+}
+export function installEngine(confirmed:unknown){
+  if(confirmed!==true)throw new Error("下载引擎前需要确认第三方许可证");
+  const p=installation();if(p.running||benchmarkRunning()||tts().isBusy())throw new Error("请等待声音安装、生成或速度测试结束");
+  if(kokoroStatus().engineAvailable)return {...p,phase:"听书引擎已安装"};
+  Object.assign(p,{running:true,phase:"下载独立听书引擎",done:0,total:0,error:""});
+  void(async()=>{
+    const dest=destination(),stage=dest+".partial",backup=dest+".previous";
+    try{
+      await fs.promises.rm(stage,{recursive:true,force:true});await fs.promises.mkdir(stage,{recursive:true});
+      const candidates=[process.env.RM_KOKORO_PYTHON,...(process.platform==="win32"?["python","py"]:["/opt/homebrew/bin/python3","/usr/local/bin/python3","/usr/bin/python3"])].filter((p):p is string=>!!p);
+      let base:string|undefined;
+      for(const candidate of candidates){try{await promisify(execFile)(candidate,["-c","import sys;assert sys.version_info >= (3,11)"],{timeout:10000,windowsHide:true});base=candidate;break;}catch{/* Try another user-installed Python. */}}
+      if(!base)throw new Error("请先安装 Python 3.11 或更新版本（python.org），再下载听书引擎");
+      await promisify(execFile)(base,["-m","venv",path.join(stage,"python")],{timeout:60000,windowsHide:true});
+      const python=path.join(stage,"python",process.platform==="win32"?"Scripts/python.exe":"bin/python3");
+      await promisify(execFile)(python,["-m","pip","install","--disable-pip-version-check","--no-cache-dir","--only-binary=:all:","--index-url","https://pypi.org/simple","sherpa-onnx==1.13.8","numpy==2.5.3","opencc-python-reimplemented==0.1.7"],{timeout:300000,maxBuffer:1024*1024,windowsHide:true,env:{...process.env,PIP_CONFIG_FILE:process.platform==="win32"?"NUL":"/dev/null",PYTHONNOUSERSITE:"1",PYTHONDONTWRITEBYTECODE:"1"}});
+      await promisify(execFile)(python,["-c","import sherpa_onnx, numpy, opencc"],{timeout:30000,windowsHide:true});
+      await fs.promises.writeFile(path.join(stage,"manifest.json"),JSON.stringify({target:target(),engine:"sherpa-onnx-1.13.8",model:"not-installed"}));
+      await fs.promises.rm(backup,{recursive:true,force:true});const exists=fs.existsSync(dest);if(exists)await fs.promises.rename(dest,backup);
+      try{await fs.promises.rename(stage,dest);}catch(e){if(exists)await fs.promises.rename(backup,dest);throw e;}
+      await fs.promises.rm(backup,{recursive:true,force:true});p.phase="听书引擎安装完成";
+    }catch(e){p.error=e instanceof Error&&e.message.startsWith("请先安装 Python")?e.message:"听书引擎下载或校验失败，请检查 PyPI 网络连接后重试；原安装未修改";p.phase="安装失败，可重试";await fs.promises.rm(stage,{recursive:true,force:true});}
     finally{p.running=false;}
   })();return p;
 }

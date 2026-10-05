@@ -15,14 +15,18 @@ export function kokoroPaths() {
   const root = process.env.RM_KOKORO_ROOT || path.join(process.cwd(), "runtime/kokoro");
   const installed=path.join(process.env.RM_KOKORO_INSTALL_ROOT || path.join(process.env.RESOURCES_MANAGER_DATA || path.join(process.cwd(),"data"),"kokoro-runtime"),"bundle",`${process.platform}-${process.arch}`);
   const bundle = fs.existsSync(path.join(installed,"manifest.json"))?installed:path.join(root,"bundle",`${process.platform}-${process.arch}`);
-  return { root, bundle, model: path.join(bundle,"model"), worker: path.join(root,"kokoro_worker.py"), python: path.join(bundle,"python",process.platform === "win32" ? "python.exe" : "bin/python3") };
+  const windowsPython=fs.existsSync(path.join(bundle,"python","Scripts","python.exe"))?"Scripts/python.exe":"python.exe";
+  return { root, bundle, model: path.join(bundle,"model"), worker: path.join(root,"kokoro_worker.py"), python: path.join(bundle,"python",process.platform === "win32" ? windowsPython : "bin/python3") };
 }
 export function kokoroStatus() {
   const p=kokoroPaths(), full=fs.existsSync(path.join(p.model,"model.onnx"));
   const required=[p.python,p.worker,path.join(p.bundle,"manifest.json"),...[
     full?"model.onnx":"model.int8.onnx","voices.bin","tokens.txt","espeak-ng-data","lexicon-us-en.txt","lexicon-zh.txt",
   ].map(file=>path.join(p.model,file))];
-  return { available: required.every(f=>fs.existsSync(f)), platform: `${process.platform}-${process.arch}`, model: full ? "Kokoro v1.1 · 完整版" : "Kokoro v1.1 · INT8" };
+  const pythonLib=path.join(p.bundle,"python",process.platform==="win32"?"Lib":"lib");
+  const sites=process.platform==="win32"?[path.join(pythonLib,"site-packages")]:fs.existsSync(pythonLib)?fs.readdirSync(pythonLib).filter(n=>/^python3\.\d+$/.test(n)).map(n=>path.join(pythonLib,n,"site-packages")):[];
+  const engineAvailable=fs.existsSync(p.python)&&sites.some(s=>fs.existsSync(path.join(s,"sherpa_onnx","__init__.py")));
+  return { available: engineAvailable&&required.every(f=>fs.existsSync(f)), engineAvailable, platform: `${process.platform}-${process.arch}`, model: full ? "Kokoro v1.1 · 完整版" : "Kokoro v1.1 · INT8" };
 }
 export function kokoroIdentity() {
   const manifest = path.join(kokoroPaths().bundle, "manifest.json");

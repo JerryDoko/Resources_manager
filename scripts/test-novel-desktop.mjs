@@ -18,6 +18,15 @@ try{
   const page=await app.firstWindow({timeout:60000});page.on('pageerror',e=>errors.push(e.message));
   await page.route('**/api/update/check*',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({currentVersion:'1.1.11',latestVersion:'1.1.11',updateAvailable:false})}));
   await page.waitForLoadState('domcontentloaded');
+  const fresh=await page.evaluate(()=>fetch('/api/novel?action=context').then(r=>r.json()));
+  if(process.env.RM_TEST_APP){
+    assert.equal(fresh.available,false);assert.equal(fresh.engineAvailable,false);
+    const initial=await page.evaluate(async(profileId)=>fetch('/api/novel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'install-engine',profileId,confirmed:true})}).then(r=>r.json()),fresh.profileId);assert.equal(initial.running,true);
+    await expect.poll(()=>page.evaluate(()=>fetch('/api/novel?action=runtime-status').then(r=>r.json())),{timeout:360000}).toMatchObject({running:false,error:''});
+    const installed=await page.evaluate(()=>fetch('/api/novel?action=context').then(r=>r.json()));assert.equal(installed.engineAvailable,true);assert.equal(installed.available,false);
+    await page.evaluate(async({profileId,directory})=>fetch('/api/novel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'install-runtime',profileId,directory})}).then(r=>r.json()),{profileId:fresh.profileId,directory:process.env.RM_TEST_KOKORO_FULL||path.join(root,'runtime/kokoro/bundle/darwin-arm64/model')});
+    await expect.poll(()=>page.evaluate(()=>fetch('/api/novel?action=runtime-status').then(r=>r.json())),{timeout:180000}).toMatchObject({running:false,error:''});
+  }
   await page.evaluate(()=>{const Audio=window.Audio;window.__novelAudio=[];window.Audio=function(...args){const audio=new Audio(...args);window.__novelAudio.push(audio);return audio;};});
   const video=await page.evaluate(async()=>{
     const canvas=document.createElement('canvas');canvas.width=320;canvas.height=180;const ctx=canvas.getContext('2d');let frame=0;
@@ -68,7 +77,13 @@ try{
   const localFile=path.join(userData,'data/fixtures/本地导入测试.txt');fs.writeFileSync(localFile,'第一章 导入\n这是本地导入的原文。\n第二章 继续\n第二章正文。');
   await app.evaluate(({dialog},file)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[file]});},localFile);
   await page.getByRole('button',{name:'导入',exact:true}).click();
+  await expect(page.getByRole('button',{name:'导入网页',exact:true})).toHaveCount(0);
+  await page.getByText('网页扩展 · 未安装',{exact:true}).click();
+  const extensionFile=path.join(userData,'extension.json');fs.writeFileSync(extensionFile,JSON.stringify({format:'resources-manager.web-novel.v1',id:'smoke',name:'原创测试',version:'1.0.0',license:'MIT',authorization:{basis:'own-content',statement:'此站点仅用作原创自动化测试，不包含任何第三方作品。',reference:'https://example.org/rights'},origins:['https://example.org'],selectors:{content:'article',title:'h1',bookTitle:'title'}}));
+  page.once('dialog',dialog=>dialog.accept());await page.getByLabel('网页扩展 JSON',{exact:true}).setInputFiles(extensionFile);
   await expect(page.getByRole('button',{name:'导入网页',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'移除扩展',exact:true}).click();
+  await expect(page.getByRole('button',{name:'导入网页',exact:true})).toHaveCount(0);
   await expect(page.getByRole('button',{name:'小说导入',exact:true})).toHaveCount(0);
   await page.route('**/api/novel?action=context',route=>route.abort('failed'));
   await page.getByRole('button',{name:'系列',exact:true}).click();await page.getByRole('button',{name:'导入',exact:true}).click();
@@ -141,17 +156,6 @@ try{
   await page.getByRole('button',{name:'目录',exact:true}).click();await expect(page.getByRole('button',{name:'第二章 继续',exact:true})).toBeVisible();
   await page.getByRole('button',{name:'关闭小说',exact:true}).click();
   await page.getByRole('button',{name:'返回库',exact:true}).click();
-  if(process.env.RM_TEST_WEB==='1'){
-    webResult=await page.evaluate(async(profileId)=>{
-      const request=async(action,body={})=>{const r=await fetch('/api/novel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,profileId,...body})});const d=await r.json();if(!r.ok)throw new Error(d.error);return d;};
-      const url='https://wcshuba.com/read/3009/1796951.html';const [a,b]=await Promise.all([request('web',{url}),request('web',{url})]);if(a.itemId!==b.itemId)throw new Error('Duplicate web book');
-      const book=await request('book',{itemId:a.itemId}),session=await request('begin',{itemId:a.itemId});
-      const params={itemId:a.itemId,sessionId:session.id,chapterId:book.chapters[0].id};const next=await request('next',params),cached=await request('next',params);if(next.id!==cached.id)throw new Error('Duplicate next chapter');
-      const summary=await request('chapters-summary',{itemId:a.itemId});await request('cancel',{itemId:a.itemId,sessionId:session.id});return {itemId:a.itemId,chapterCount:summary.chapters.length,titles:summary.chapters.map(c=>c.title)};
-    },state.c.profileId);
-    assert.equal(webResult.chapterCount,2);
-    const dir=path.join(userData,'data/profiles',state.c.profileId,'novels',webResult.itemId);assert.ok(fs.existsSync(path.join(dir,'collection.txt')));assert.equal(fs.readdirSync(path.join(dir,'chapters')).filter(f=>f.endsWith('.txt')).length,2);
-  }
   await page.locator('[data-series-card]').filter({hasText:'听书测试'}).click();
   await page.getByRole('button',{name:/^(打开书本|继续阅读)$/}).click();
   await page.getByRole('button',{name:'听书',exact:true}).click();

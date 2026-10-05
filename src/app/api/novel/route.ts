@@ -11,9 +11,10 @@ import { importLegacy, previewLegacy } from "@/lib/novel/legacy-import";
 import { exportNovelArchive, restoreNovelArchive } from "@/lib/novel/archive";
 import { readEpubAsset } from "@/lib/epub";
 import { PREVIEW_TEXT } from "@/lib/novel/types";
-import { installation, installRuntime } from "@/lib/novel/runtime-install";
+import { installation, installRuntime, installEngine } from "@/lib/novel/runtime-install";
 import { getPerformance, savePerformance, threadLimit } from "@/lib/novel/performance-settings";
 import { benchmarkPerformance } from "@/lib/novel/runtime-benchmark";
+import { webExtension, installWebExtension, removeWebExtension } from "@/lib/novel/web-extensions";
 export const runtime="nodejs";
 export const dynamic="force-dynamic";
 const root=globalThis as typeof globalThis & { rmNovelAudio?:Map<string,{profileId:string;itemId:string;path:string}> };
@@ -23,7 +24,7 @@ const fail=(e:unknown)=>NextResponse.json({error:e instanceof Error?e.message:St
 export async function GET(req:NextRequest){
   try{
     const q=req.nextUrl.searchParams,action=q.get("action"),profileId=q.get("profileId")||getActiveProfileId();assertProfile(profileId);
-    if(action==="context")return json({profileId,...kokoroStatus()});
+    if(action==="context")return json({profileId,...kokoroStatus(),webExtension:webExtension(profileId)});
     if(action==="runtime-status")return json(installation());
     if(action==="performance")return json({profileId,settings:getPerformance(),maxThreads:threadLimit()});
     if(action==="export")return new NextResponse(JSON.stringify(exportNovelArchive(profileId),null,2),{headers:{"Content-Type":"application/json","Content-Disposition":"attachment; filename=novel-books.json"}});
@@ -57,6 +58,9 @@ export async function POST(req:NextRequest){
       return json(importUploadedBook(profileId,file.name,data));
     }
     const body=await req.json(),{action,profileId,itemId,sessionId}=body;assertProfile(profileId);
+    if(action==="install-engine")return json(installEngine(body.confirmed));
+    if(action==="extension-install")return json(installWebExtension(profileId,body.extension,body.confirmed));
+    if(action==="extension-remove"){removeWebExtension(profileId);return json({ok:true});}
     if(action==="install-runtime")return json(installRuntime(body.directory));
     if(action==="performance-save")return json(savePerformance(body.settings));
     if(action==="performance-test"){
