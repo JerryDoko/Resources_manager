@@ -2,6 +2,8 @@ import { load } from "cheerio";
 import { lookup } from "dns/promises";
 import http from "http";
 import https from "https";
+import { MIMEType } from "node:util";
+import iconv from "iconv-lite";
 import { BlockList, isIP } from "net";
 import { decodeNovelBuffer } from "@/lib/encoding";
 import { getSqlite } from "@/lib/db";
@@ -19,6 +21,22 @@ const blocked=new BlockList(),blocked6=new BlockList();
 for(const [base,prefix] of [["0.0.0.0",8],["10.0.0.0",8],["100.64.0.0",10],["127.0.0.0",8],["169.254.0.0",16],["172.16.0.0",12],["192.168.0.0",16],["192.0.0.0",24],["192.0.2.0",24],["198.18.0.0",15],["198.51.100.0",24],["203.0.113.0",24],["224.0.0.0",4],["240.0.0.0",4]] as const)blocked.addSubnet(base,prefix,"ipv4");
 for(const [base,prefix] of [["::",128],["::1",128],["fc00::",7],["fe80::",10],["ff00::",8],["2001:db8::",32],["::ffff:0:0",96],["64:ff9b::",96],["2002::",16]] as const)blocked6.addSubnet(base,prefix,"ipv6");
 export const publicAddress=(address:string)=>isIP(address)===4?!blocked.check(address,"ipv4"):isIP(address)===6&&!blocked6.check(address,"ipv6");
+export function decodeWebPage(data: Buffer, contentType?: string) {
+  if ((data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf) ||
+      (data[0] === 0xff && data[1] === 0xfe) || (data[0] === 0xfe && data[1] === 0xff)) return decodeNovelBuffer(data).text;
+  let charset: string | undefined;
+  try { charset = contentType ? new MIMEType(contentType).params.get("charset") || undefined : undefined; } catch { /* Fall back to the document declaration. */ }
+  const head = load(data.subarray(0, 1024).toString("latin1"));
+  const metaCharset = head("meta[charset]").first().attr("charset");
+  const metaType = head("meta[http-equiv]").filter((_, node) => head(node).attr("http-equiv")?.toLowerCase() === "content-type").first().attr("content");
+  let metaEncoding = metaCharset;
+  if (!metaEncoding && metaType) { try { metaEncoding = new MIMEType(metaType).params.get("charset") || undefined; } catch { /* Unknown declaration. */ } }
+  for (const declared of [charset, metaEncoding]) {
+    if (declared && iconv.encodingExists(declared.trim())) return iconv.decode(data, declared.trim());
+  }
+  // Valid UTF-8 must not be overruled by incidental kana in a heuristic decode.
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(data); } catch { return decodeNovelBuffer(data).text; }
+}
 export async function downloadPage(input:string,extension:WebExtension,signal?:AbortSignal,redirect=0):Promise<{html:string;url:string}> {
   if(redirect>4)throw new Error("网页重定向过多");const url=normalizeURL(input),u=new URL(url),host=u.hostname.replace(/^\[|\]$/g,"");
   assertWebOrigin(extension,url);
@@ -30,7 +48,7 @@ export async function downloadPage(input:string,extension:WebExtension,signal?:A
       if(res.statusCode!==200){res.resume();clearTimeout(timer);return reject(new Error(`网站返回 ${res.statusCode}`));}
       let size=0;const chunks:Buffer[]=[];
       res.on("data",chunk=>{size+=chunk.length;if(size>4*1024*1024){req.destroy(new Error("网页超过 4 MB"));return;}chunks.push(chunk);});
-      res.on("end",()=>{clearTimeout(timer);resolve({html:decodeNovelBuffer(Buffer.concat(chunks)).text,url});});res.on("error",reject);
+      res.on("end",()=>{clearTimeout(timer);resolve({html:decodeWebPage(Buffer.concat(chunks),res.headers["content-type"]),url});});res.on("error",reject);
     });
     const timer=setTimeout(()=>req.destroy(new Error("网页下载超时，请重试")),30000);
     req.on("error",e=>{clearTimeout(timer);reject(e);});

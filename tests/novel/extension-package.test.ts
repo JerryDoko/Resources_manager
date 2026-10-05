@@ -3,9 +3,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import JSZip from "jszip";
+import iconv from "iconv-lite";
 import demo from "../../src/lib/novel/extension-demo.json";
 import { buildExampleExtensionPackage, parseExtensionPackage } from "../../src/lib/novel/extension-package";
-import { parseWebChapter } from "../../src/lib/novel/web-import";
+import { parseWebChapter, decodeWebPage } from "../../src/lib/novel/web-import";
 import { validateWebExtension } from "../../src/lib/novel/web-extensions";
 import { EXAMPLE_CHAPTER_URL } from "../../src/lib/novel/extension-downloads";
 
@@ -23,6 +24,18 @@ test("示例正文与续章规则有实际页面，书籍去重键一致", () =>
   assert.equal(first.bookTitle, "灯塔来信"); assert.match(first.text, /旧信箱/);
   assert.equal(first.sourceKey, second.sourceKey); assert.equal(second.nextURL, undefined);
   assert.match(first.nextURL!, /chapter-2\.html$/);
+});
+test("网页尊重 BOM、HTTP 与 HTML 编码声明，合法 UTF-8 不误判日文编码", () => {
+  const html = fs.readFileSync(path.resolve("docs/web-extension-demo/chapter-1.html"), "utf8").replace(/^\uFEFF/, "");
+  assert.equal(decodeWebPage(Buffer.from(html)), html);
+  assert.equal(decodeWebPage(Buffer.from(html.replace('<meta charset="utf-8">', ''))), html.replace('<meta charset="utf-8">', ''));
+  const gbk = '<meta charset="gbk"><h1>第一章 旧信箱</h1>';
+  assert.equal(decodeWebPage(iconv.encode(gbk, "gbk")), gbk);
+  const text = '<h1>第一章 旧信箱</h1>';
+  assert.equal(decodeWebPage(iconv.encode(text, "gbk"), 'text/html; charset=gbk'), text);
+  const equiv = '<meta http-equiv="Content-Type" content="text/html; charset=gbk">' + text;
+  assert.equal(decodeWebPage(iconv.encode(equiv, "gbk")), equiv);
+  assert.equal(decodeWebPage(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(text)]), 'text/html; charset=gbk'), text);
 });
 test("拒绝代码、路径穿越、子目录和符号链接", async () => {
   for (const [name, options] of [["install.js", {}], ["../manifest.json", {}], ["folder/manifest.json", {}], ["manifest.json", { unixPermissions: 0o120777 }]] as const) {

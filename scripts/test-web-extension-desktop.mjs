@@ -24,6 +24,24 @@ try {
   page.once('dialog', d => d.accept());
   await page.getByRole('button', { name: '安装原创示例扩展', exact: true }).click();
   await expect(page.getByLabel('授权章节链接', { exact: true })).toHaveValue(/chapter-1\.html$/);
+  let realWeb = false;
+  if (process.env.RM_TEST_EXTENSION_WEB === '1') {
+    const response = page.waitForResponse(r => r.url().endsWith('/api/novel') && r.request().postData()?.includes('"action":"web"'));
+    await page.getByRole('button', { name: '导入网页', exact: true }).click();
+    const imported = await response; assert.equal(imported.status(), 200); const { itemId } = await imported.json();
+    const book = await page.evaluate(async itemId => {
+      const { profileId } = await fetch('/api/novel?action=context').then(r => r.json());
+      const request = async (action, extra = {}) => {
+        const r = await fetch('/api/novel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profileId, itemId, action, ...extra }) });
+        const value = await r.json(); if (!r.ok) throw new Error(value.error); return value;
+      };
+      const first = await request('book'), session = await request('begin');
+      const next = await request('next', { sessionId: session.id, chapterId: first.chapters[0].id });
+      const all = await request('book'); await request('cancel', { sessionId: session.id });
+      return { title: all.title, chapters: all.chapters.length, next: next.title };
+    }, itemId);
+    assert.deepEqual(book, { title: '灯塔来信', chapters: 2, next: '第二章 灯亮的时候' }); realWeb = true;
+  }
   const zipResponse = await page.request.get(new URL('/api/novel/extensions?format=zip', page.url()).href);
   assert.equal(zipResponse.status(), 200); assert.match(zipResponse.headers()['content-disposition'], /\.zip/);
   const zipFile = path.join(userData, 'demo.zip'); fs.writeFileSync(zipFile, await zipResponse.body());
@@ -58,6 +76,6 @@ try {
   await help.screenshot({ path: path.join(output, 'novel-help.png') });
   await help.close();
   assert.deepEqual(errors, []);
-  const result = { installCancel: true, oneClick: true, downloadableZip: true, zipImport: true, customAdapter: true, invalidPackagePreservesInstalled: true, nativeHelpWindow: true, narrowLayout: true, errors };
+  const result = { installCancel: true, oneClick: true, downloadableZip: true, zipImport: true, customAdapter: true, invalidPackagePreservesInstalled: true, nativeHelpWindow: true, narrowLayout: true, realWeb, errors };
   fs.writeFileSync(path.join(output, 'web-extension-desktop.json'), JSON.stringify(result, null, 2)); console.log(result);
 } finally { await app.close(); }
