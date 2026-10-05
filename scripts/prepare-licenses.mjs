@@ -25,7 +25,15 @@ const download=(url,to)=>{
   if(raw){
     try{const content=execFileSync('gh',['api',`repos/${raw[1]}/${raw[2]}/contents/${raw[4]}?ref=${raw[3]}`,'-H','Accept: application/vnd.github.raw+json'],{maxBuffer:16*1024*1024,timeout:60000});fs.writeFileSync(to,content);return;}catch{/* Unauthenticated builds use the public raw endpoint. */}
   }
-  execFileSync('curl',['--silent','--show-error','--fail','--location','--retry','2','--connect-timeout','15','--max-time',/\.(tar\.(gz|xz|bz2)|tgz)$/.test(to)?'600':'90',url,'--output',to],{stdio:'pipe'});
+  const sourceArchive=/\.(tar\.(gz|xz|bz2)|tgz)$/.test(to);
+  const args=['--silent','--show-error','--fail','--location','--retry','2','--connect-timeout','15','--max-time',sourceArchive?'1200':'90'];
+  const resume=sourceArchive&&fs.existsSync(to)&&fs.statSync(to).size>0;
+  try{execFileSync('curl',[...args,...(resume?['--continue-at','-']:[]),url,'--output',to],{stdio:'pipe'});}
+  catch(error){
+    if(!resume||error.status!==33)throw error;
+    fs.rmSync(to,{force:true});
+    execFileSync('curl',[...args,url,'--output',to],{stdio:'pipe'});
+  }
 };
 for(const file of ['LICENSE','THIRD-PARTY-NOTICES.md'])fs.copyFileSync(path.join(root,file),path.join(out,file));
 for(const file of ['LICENSE','LICENSES.chromium.html'])fs.copyFileSync(path.join(root,'node_modules/electron/dist',file),path.join(out,`Electron-${file}`));
@@ -145,7 +153,7 @@ if(process.argv.includes('--sources')){
   const charset=path.join(dest,'javascript/jschardet');
   fs.rmSync(charset,{recursive:true,force:true});
   fs.cpSync(path.join(root,'node_modules/jschardet'),charset,{recursive:true});
-  fs.writeFileSync(path.join(dest,'REBUILD.md'),`# Rebuilding Third-Party Components\n\nNative image libraries: use the included sharp-libvips-${libvips.version}/build scripts, version pins and patches.\nJavaScript: javascript/jschardet contains the complete installed LGPL-2.1-or-later source package.\nThe app source is published at https://github.com/JerryDoko/Resources_manager.\nRun npm ci in that source, replace node_modules/jschardet/lib with your modified version, then npm run release:mac to rebuild the application.\nThe app does not prohibit replacement or reverse engineering for debugging modifications to LGPL components.\n`);
+  fs.writeFileSync(path.join(dest,'REBUILD.md'),`# Rebuilding Third-Party Components\n\nNative image libraries: use the included sharp-libvips-${libvips.version}/build scripts, version pins and patches.\nJavaScript: javascript/jschardet contains the complete installed LGPL-2.1-or-later source package.\nThe app source is published at https://github.com/JerryDoko/Resources_manager.\nRun npm ci in that source, replace node_modules/jschardet/src with your modified version, then npm run release:mac to rebuild the application.\nThe app does not prohibit replacement or reverse engineering for debugging modifications to LGPL components.\n`);
   fs.writeFileSync(path.join(dest,'sources.json'),JSON.stringify(records,null,2));
   const used=new Set(records.map(record=>path.basename(record.file)));
   for(const name of fs.readdirSync(path.join(dest,'archives')))if(!used.has(name))fs.rmSync(path.join(dest,'archives',name),{recursive:true,force:true});

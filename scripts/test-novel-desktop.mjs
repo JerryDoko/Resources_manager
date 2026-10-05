@@ -35,6 +35,7 @@ try{
     const timer=setInterval(paint,50);recorder.start();await new Promise(r=>setTimeout(r,1500));await new Promise(resolve=>{recorder.onstop=resolve;recorder.stop();});clearInterval(timer);stream.getTracks().forEach(t=>t.stop());return Array.from(new Uint8Array(await new Blob(chunks).arrayBuffer()));
   });fs.writeFileSync(path.join(userData,'data/fixtures/video.webm'),Buffer.from(video));
   await page.getByRole('button',{name:/^小说\s+\d/}).click();
+  await page.getByRole('button',{name:'系列',exact:true}).click();
   await page.locator('[data-series-card]').filter({hasText:'听书测试'}).click();
   await expect(page.getByRole('heading',{name:'章节列表 · 2 章',exact:true})).toBeVisible();
   await page.getByRole('button',{name:/^(打开书本|继续阅读)$/}).click();
