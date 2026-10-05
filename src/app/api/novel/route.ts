@@ -12,6 +12,8 @@ import { exportNovelArchive, restoreNovelArchive } from "@/lib/novel/archive";
 import { readEpubAsset } from "@/lib/epub";
 import { PREVIEW_TEXT } from "@/lib/novel/types";
 import { installation, installRuntime } from "@/lib/novel/runtime-install";
+import { getPerformance, savePerformance, threadLimit } from "@/lib/novel/performance-settings";
+import { benchmarkPerformance } from "@/lib/novel/runtime-benchmark";
 export const runtime="nodejs";
 export const dynamic="force-dynamic";
 const root=globalThis as typeof globalThis & { rmNovelAudio?:Map<string,{profileId:string;itemId:string;path:string}> };
@@ -23,6 +25,7 @@ export async function GET(req:NextRequest){
     const q=req.nextUrl.searchParams,action=q.get("action"),profileId=q.get("profileId")||getActiveProfileId();assertProfile(profileId);
     if(action==="context")return json({profileId,...kokoroStatus()});
     if(action==="runtime-status")return json(installation());
+    if(action==="performance")return json({profileId,settings:getPerformance(),maxThreads:threadLimit()});
     if(action==="export")return new NextResponse(JSON.stringify(exportNovelArchive(profileId),null,2),{headers:{"Content-Type":"application/json","Content-Disposition":"attachment; filename=novel-books.json"}});
     const itemId=q.get("itemId")||"",item=novelItem(profileId,itemId);
     if(action==="asset"){
@@ -55,6 +58,11 @@ export async function POST(req:NextRequest){
     }
     const body=await req.json(),{action,profileId,itemId,sessionId}=body;assertProfile(profileId);
     if(action==="install-runtime")return json(installRuntime(body.directory));
+    if(action==="performance-save")return json(savePerformance(body.settings));
+    if(action==="performance-test"){
+      if(installation().running)throw new Error("声音包正在安装，请稍后测试");
+      return json(await benchmarkPerformance(body.settings));
+    }
     if(action==="local-import")return json(importLocalBook(profileId,body.file));
     if(action==="web")return json(await importWeb(profileId,body.url));
     if(action==="legacy-preview")return json(previewLegacy(profileId,body.directory));
@@ -72,6 +80,7 @@ export async function POST(req:NextRequest){
     if(action==="next")return json(await nextChapter(profileId,itemId,body.chapterId,sessionId,body.encoding));
     if(action==="progress") {await savePosition(profileId,itemId,body.position,body.encoding,body.played!==false,()=>assertSession(profileId,itemId,sessionId),body.completed===true,body.chapterCompleted===true);return json({ok:true});}
     if(action==="synthesize"||action==="preview"){
+      if(installation().running)throw new Error("声音包正在安装，请稍后朗读");
       let text=PREVIEW_TEXT;
       if(action==="synthesize"){const chapter=await getChapter(profileId,itemId,body.chapterId,body.encoding);const chunk=chapter.chunks.find(c=>c.id===body.chunkId);if(!chunk)throw new Error("朗读片段不存在");text=chunk.text;}
       assertSession(profileId,itemId,sessionId);

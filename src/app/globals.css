@@ -5,6 +5,7 @@
 :root {
   --ui-scale: 1;
   --bg: transparent;
+  --paper: #f7f9f8;
   --bg-elevated: rgba(255, 255, 255, 0.72);
   --bg-panel: rgba(255, 255, 255, 0.55);
   --bg-sidebar: rgba(248, 250, 252, 0.82);

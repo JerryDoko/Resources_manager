@@ -10,8 +10,10 @@ import { getBook,getChapter,importChapters,savePosition,savePreferences,chapterS
 import { importLegacy,previewLegacy } from "../../src/lib/novel/legacy-import";
 import { exportBackup,importBackup,resetSeriesProgress,deleteSeries } from "../../src/lib/library";
 import { assertSession,beginSession,revokeNovelSessions,captureNovelWorkspace,invalidateNovelWorkspace } from "../../src/lib/novel/sessions";
-import { tts,kokoroPaths } from "../../src/lib/novel/tts-service";
+import { tts,kokoroPaths,kokoroIdentity } from "../../src/lib/novel/tts-service";
 import { installRuntime,installation } from "../../src/lib/novel/runtime-install";
+import { getPerformance, savePerformance } from "../../src/lib/novel/performance-settings";
+import { benchmarkPerformance } from "../../src/lib/novel/runtime-benchmark";
 import { scanFolder } from "../../src/lib/scanner";
 import { legacyChunkOffset } from "../../src/lib/novel/chunks";
 import { nextChapter } from "../../src/lib/novel/web-import";
@@ -103,6 +105,41 @@ test("真实 Kokoro 合成、缓存、音色、会话去重",{timeout:180000},as
   const wav=fs.readFileSync(one.path);assert.equal(wav.toString("ascii",0,4),"RIFF");assert.equal(wav.readUInt32LE(24),24000);
   const cached=await tts().synthesize(request);assert.equal(cached.cached,true);const male=await tts().synthesize({...request,voiceId:58});assert.notEqual(male.path,one.path);
   console.log(JSON.stringify({kokoroFirstWallMs:firstWallMs,firstDuration:one.duration,firstElapsed:one.elapsed,cached:cached.cached,maleElapsed:male.elapsed}));
+});
+test("2/4 线程真实测速不保存选择、不改变书籍进度或正式缓存",{timeout:180000},async()=>{
+  const p=getActiveProfileId(),item=importChapters(p,"test:performance","性能测试",[{title:"一",text:"性能测试不会改变阅读位置。"}]);
+  const before=await getBook(p,item.itemId),settings=getPerformance(),cache=path.join(getProfileDataDir(p),"novel-audio/kokoro");
+  const files=fs.existsSync(cache)?fs.readdirSync(cache):[];
+  const two=await benchmarkPerformance({mode:"balanced"}),four=await benchmarkPerformance({mode:"speed"});
+  for(const result of [two,four]){assert.ok(result.duration>1);assert.ok(result.elapsed>0);assert.equal(result.rtf,result.elapsed/result.duration);assert.ok(result.loadSeconds>0);}
+  assert.deepEqual(getPerformance(),settings);assert.deepEqual(await getBook(p,item.itemId),before);
+  assert.deepEqual(fs.existsSync(cache)?fs.readdirSync(cache):[],files);
+  console.log(JSON.stringify({performanceTwo:two,performanceFour:four}));
+});
+test("线程保存后下一段重启引擎，当前已缓存片段仍可重用",{timeout:100000},async()=>{
+  const profile=getActiveProfileId(),item=importChapters(profile,"test:threads","线程测试",[{title:"一",text:"先读这一段。"}]),session=beginSession(profile,item.itemId);
+  const request={profileId:profile,itemId:item.itemId,sessionId:session.id,text:"先读这一段。",voiceId:3,priority:"foreground" as const};
+  const first=await tts().synthesize(request),pid=tts().child?.pid;
+  const active=tts().synthesize({...request,text:"这一段仍在生成，保存设置不应该中断它。"});
+  savePerformance({mode:"low"});assert.equal(tts().child?.pid,pid);await active;assert.equal(tts().child?.pid,pid);
+  const cached=await tts().synthesize(request);assert.equal(cached.cached,true);assert.equal(tts().child?.pid,pid);
+  await tts().synthesize({...request,text:"设置保存后，下一段使用新的线程数量。"}); assert.notEqual(tts().child?.pid,pid);assert.ok(tts().configuration.endsWith(":1"));
+  savePerformance({mode:"balanced"});assert.ok(fs.existsSync(first.path));
+});
+test("无效模型和符号链接导入失败不会覆盖现有声音包",{timeout:100000},async()=>{
+  const original=kokoroIdentity(),invalid=path.join(temp,"invalid-model");fs.mkdirSync(invalid);fs.writeFileSync(path.join(invalid,"model.onnx"),"not onnx");
+  const wait=async()=>{while(installation().running)await new Promise(r=>setTimeout(r,30));};
+  installRuntime(invalid);await wait();assert.ok(installation().error);assert.equal(kokoroIdentity(),original);
+  const linked=path.join(temp,"linked-model");fs.cpSync(kokoroPaths().model,linked,{recursive:true});fs.rmSync(path.join(linked,"voices.bin"));fs.symlinkSync(path.join(kokoroPaths().model,"voices.bin"),path.join(linked,"voices.bin"));
+  installRuntime(linked);await wait();assert.match(installation().error,/符号链接/);assert.equal(kokoroIdentity(),original);
+  assert.equal(fs.existsSync(kokoroPaths().bundle+".partial"),false);
+});
+test("官方完整版模型导入及独立缓存",{timeout:240000,skip:!process.env.RM_TEST_KOKORO_FULL},async()=>{
+  const previous=kokoroIdentity(),wait=async()=>{while(installation().running)await new Promise(r=>setTimeout(r,30));};
+  installRuntime(process.env.RM_TEST_KOKORO_FULL);await wait();assert.equal(installation().error,"");assert.notEqual(kokoroIdentity(),previous);assert.ok(fs.existsSync(path.join(kokoroPaths().model,"model.onnx")));
+  const profile=getActiveProfileId(),item=importChapters(profile,"test:full-audio","完整版测试",[{title:"一",text:"完整版的中文朗读。"}]),session=beginSession(profile,item.itemId);
+  const result=await tts().synthesize({profileId:profile,itemId:item.itemId,sessionId:session.id,text:"完整版的中文朗读。",voiceId:22,priority:"foreground"});assert.ok(result.duration>1);assert.equal(result.cached,false);
+  console.log(JSON.stringify({fullModelDuration:result.duration,fullModelElapsed:result.elapsed}));
 });
 test("Node 父进程异常结束后 Python 不遗留",{timeout:100000},async()=>{
   const paths=kokoroPaths(),cache=path.join(temp,"parent-death-cache");fs.mkdirSync(cache);

@@ -23,6 +23,7 @@ import {
   type MediaType,
 } from "@/lib/types";
 import { ShortcutSettings } from "@/components/ShortcutSettings";
+import { NovelPerformanceSettings } from "@/components/NovelPerformanceSettings";
 import { cn } from "@/lib/utils";
 
 interface StoragePaths {
@@ -518,6 +519,7 @@ export function SettingsPanel() {
           </section>
 
           <ShortcutSettings />
+          <NovelPerformanceSettings />
 
           <section className="rounded-lg border border-[var(--line)] bg-[#f7f9f8] p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">

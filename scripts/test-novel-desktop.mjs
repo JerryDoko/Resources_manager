@@ -16,6 +16,7 @@ let pythonPid=null;
 let webResult=null;
 try{
   const page=await app.firstWindow({timeout:60000});page.on('pageerror',e=>errors.push(e.message));
+  await page.route('**/api/update/check*',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({currentVersion:'1.1.11',latestVersion:'1.1.11',updateAvailable:false})}));
   await page.waitForLoadState('domcontentloaded');
   await page.evaluate(()=>{const Audio=window.Audio;window.__novelAudio=[];window.Audio=function(...args){const audio=new Audio(...args);window.__novelAudio.push(audio);return audio;};});
   const video=await page.evaluate(async()=>{
@@ -69,6 +70,49 @@ try{
   await page.getByRole('button',{name:'导入',exact:true}).click();
   await expect(page.getByRole('button',{name:'导入网页',exact:true})).toBeVisible();
   await expect(page.getByRole('button',{name:'小说导入',exact:true})).toHaveCount(0);
+  await page.getByText('听书声音包 · 已安装',{exact:true}).click();
+  await expect(page.getByRole('button',{name:'选择声音包目录',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'导入声音包',exact:true})).toBeDisabled();
+  await app.evaluate(({dialog})=>{dialog.showOpenDialog=async()=>({canceled:true,filePaths:[]});});
+  await page.getByRole('button',{name:'选择声音包目录',exact:true}).click();
+  await expect(page.getByLabel('Kokoro 模型目录',{exact:true})).toHaveValue('');
+  await page.getByText('听书性能设置',{exact:true}).click();
+  await expect(page.getByLabel('听书性能模式',{exact:true})).toHaveValue('balanced');
+  const speedTest=page.waitForResponse(r=>r.url().includes('/api/novel')&&r.request().postData()?.includes('performance-test'),{timeout:180000});
+  await page.getByRole('button',{name:'测试生成速度',exact:true}).click();const speedResponse=await speedTest;assert.equal(speedResponse.status(),200);const speedResult=await speedResponse.json();assert.ok(speedResult.rtf>0);
+  await expect(page.getByText('测试完成 · 未保存设置',{exact:true})).toBeVisible();
+  assert.equal(fs.existsSync(path.join(userData,'data/novel-performance.json')),false);
+  await page.getByLabel('听书性能模式',{exact:true}).selectOption('custom');
+  await page.getByLabel('听书 CPU 线程',{exact:true}).fill('2');
+  await page.getByRole('button',{name:'保存性能设置',exact:true}).click();
+  await expect(page.getByText('已保存 · 所有工作区生效 · 下一段新生成时应用',{exact:true})).toBeVisible();
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(userData,'data/novel-performance.json'),'utf8')),{mode:'custom',threads:2});
+  await page.getByRole('button',{name:'恢复默认',exact:true}).click();await page.getByRole('button',{name:'保存性能设置',exact:true}).click();
+  await expect(page.getByText('已保存 · 所有工作区生效 · 下一段新生成时应用',{exact:true})).toBeVisible();
+  await page.screenshot({path:path.join(output,'novel-voice-performance.png')});
+  const viewport=page.viewportSize()||{width:1280,height:840};
+  await page.setViewportSize({width:600,height:850});
+  await page.getByLabel('听书性能模式',{exact:true}).scrollIntoViewIfNeeded();
+  assert.equal(await page.getByLabel('听书性能模式',{exact:true}).locator('xpath=ancestor::details[1]').evaluate(el=>el.scrollWidth<=el.clientWidth+1),true);
+  await page.screenshot({path:path.join(output,'novel-performance-narrow.png')});
+  await page.setViewportSize(viewport);
+  {
+    const voiceDirectory=process.env.RM_TEST_KOKORO_FULL||path.join(root,'runtime/kokoro/bundle',`${process.platform}-${process.arch}`,'model');
+    await app.evaluate(({dialog},directory)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[directory]});},voiceDirectory);
+    await page.getByRole('button',{name:'选择声音包目录',exact:true}).click();
+    await expect(page.getByLabel('Kokoro 模型目录',{exact:true})).toHaveValue(voiceDirectory);
+    page.once('dialog',dialog=>dialog.accept());await page.getByRole('button',{name:'导入声音包',exact:true}).click();
+    await expect(page.getByText('声音包安装完成 · 书籍与进度未修改',{exact:true})).toBeVisible({timeout:180000});
+    await expect(page.getByText(process.env.RM_TEST_KOKORO_FULL?'Kokoro v1.1 · 完整版':'Kokoro v1.1 · INT8',{exact:true})).toBeVisible();
+  }
+  await page.getByRole('button',{name:'设置',exact:true}).click();
+  const settingsDialog=page.getByRole('button',{name:'关闭设置',exact:true}).locator('..').locator('..');
+  await settingsDialog.getByText('听书性能设置',{exact:true}).click();
+  await expect(settingsDialog.getByLabel('听书性能模式',{exact:true})).toHaveValue('balanced');
+  await settingsDialog.getByLabel('听书性能模式',{exact:true}).scrollIntoViewIfNeeded();
+  await page.screenshot({path:path.join(output,'settings-novel-performance.png')});
+  await page.getByRole('button',{name:'关闭设置',exact:true}).click();
+  await app.evaluate(({dialog},file)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[file]});},localFile);
   await page.screenshot({path:path.join(output,'novel-import.png')});
   await page.getByRole('button',{name:'导入 TXT / EPUB',exact:true}).click();
   await expect(page.getByText('已导入到当前工作区',{exact:true})).toBeVisible();
@@ -174,7 +218,7 @@ try{
   await page.getByRole('button',{name:'悬浮播放器',exact:true}).click();await expect.poll(()=>app.windows().length).toBe(2);
   await app.evaluate(({BrowserWindow})=>{const main=BrowserWindow.getAllWindows().find(w=>!w.webContents.getURL().includes('/novel-floating'));setTimeout(()=>main.close(),100);});
   await expect.poll(()=>app.windows().length).toBe(0);await expect.poll(()=>appProcess.exitCode).not.toBe(null);
-  const report={packaged:!!process.env.RM_TEST_APP,mode:process.env.RM_TEST_MODE||'start',readingDefault:true,directImport:true,nativeEpubImport:true,browserFileImport:true,floatingSettings:true,firstAudio:first,preferences:true,floatingWindow:true,mainClosesFloating:true,autoChapter:true,chapterProgress:true,twoWindows:true,epubImage:true,epubScrollChapter:true,encodingAndFont:true,nativeLocalImport:true,pdfRegression:true,photoRegression:true,mangaRegression:true,videoRegression:true,webResult,errors,context:state.c,pythonPid};fs.writeFileSync(path.join(output,process.env.RM_TEST_APP?'packaged-desktop.json':process.env.RM_TEST_MODE==='dev'?'dev-desktop.json':'desktop.json'),JSON.stringify(report,null,2));assert.deepEqual(errors,[]);console.log(report);
+  const report={packaged:!!process.env.RM_TEST_APP,mode:process.env.RM_TEST_MODE||'start',readingDefault:true,directImport:true,nativeEpubImport:true,browserFileImport:true,floatingSettings:true,firstAudio:first,preferences:true,floatingWindow:true,mainClosesFloating:true,autoChapter:true,chapterProgress:true,twoWindows:true,epubImage:true,epubScrollChapter:true,encodingAndFont:true,nativeLocalImport:true,pdfRegression:true,photoRegression:true,mangaRegression:true,videoRegression:true,voiceImportVisibleWhenInstalled:true,fullVoiceImport:!!process.env.RM_TEST_KOKORO_FULL,performanceTest:speedResult,performanceSave:true,performanceBothEntrances:true,webResult,errors,context:state.c,pythonPid};fs.writeFileSync(path.join(output,process.env.RM_TEST_APP?'packaged-desktop.json':process.env.RM_TEST_MODE==='dev'?'dev-desktop.json':'desktop.json'),JSON.stringify(report,null,2));assert.deepEqual(errors,[]);console.log(report);
 }catch(e){for(const [i,page] of app.windows().entries()){await page.screenshot({path:path.join(output,`failure-${i}.png`)}).catch(()=>{});fs.writeFileSync(path.join(output,`failure-${i}.txt`),await page.locator('body').innerText().catch(()=>''));}fs.writeFileSync(path.join(output,'errors.json'),JSON.stringify(errors));throw e;}
 finally{if(appProcess.exitCode===null)await app.close();fs.writeFileSync(path.join(output,'desktop.log'),logs.join(''));}
 if(pythonPid){await new Promise(r=>setTimeout(r,1800));let alive=true;try{process.kill(pythonPid,0);}catch{alive=false;}assert.equal(alive,false,'Python child must exit with Electron');console.log('Python exit verified');}
