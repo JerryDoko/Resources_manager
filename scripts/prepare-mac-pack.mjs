@@ -167,15 +167,21 @@ function rebuildNativeModules() {
 }
 
 function prepareStandalone() {
+  const useBuild = process.argv.includes("--use-build");
+  const buildDir = useBuild ? ".next" : ".next-pack";
   console.log("[pack] next build …");
-  if (process.argv.includes("--use-build")) {
+  if (useBuild) {
     if (!fs.existsSync(path.join(ROOT,".next/BUILD_ID"))) throw new Error("需要先成功执行 npm run build");
     console.log("[pack] 使用现有构建（调用者须确认源码未再改变）");
-  } else execSync("npx next build", { cwd: ROOT, stdio: "inherit", env: process.env });
+  } else {
+    // Development servers may rewrite .next while a release is being built.
+    rmrf(path.join(ROOT, buildDir));
+    execSync("npx next build", { cwd: ROOT, stdio: "inherit", env: { ...process.env, RM_NEXT_DIST_DIR: buildDir } });
+  }
 
-  const standalone = path.join(ROOT, ".next", "standalone");
+  const standalone = path.join(ROOT, buildDir, "standalone");
   if (!fs.existsSync(standalone)) {
-    throw new Error("未找到 .next/standalone，请确认 next.config output: standalone");
+    throw new Error(`未找到 ${buildDir}/standalone，请确认 next.config output: standalone`);
   }
 
   rmrf(SERVER_OUT);
@@ -184,8 +190,8 @@ function prepareStandalone() {
   // 构建时可能落在 cwd 下的本地库数据，不要打进安装包
   rmrf(path.join(SERVER_OUT, "data"));
 
-  const staticSrc = path.join(ROOT, ".next", "static");
-  const staticDest = path.join(SERVER_OUT, ".next", "static");
+  const staticSrc = path.join(ROOT, buildDir, "static");
+  const staticDest = path.join(SERVER_OUT, buildDir, "static");
   if (fs.existsSync(staticSrc)) {
     cpRecursive(staticSrc, staticDest);
   }

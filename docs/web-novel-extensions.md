@@ -4,21 +4,21 @@
 声明式 JSON 扩展提供；只有安装后才出现链接输入和导入按钮。
 扩展保存在当前工作区，不自动传播到其他工作区。
 
-插件并不能代替来源授权。发布者必须确认站点和内容允许相关读取、保存与朗读；
-授权声明仅由发布者提供，程序不能判断一部作品在所有司法地区的版权状态。
+来源状态与说明由扩展发布者填写，程序不判断或核验一部作品的版权状态。
+未知状态可以如实标注，不应把参考章节链接当作已取得许可的证明。
 
 ## 安装和移除
 
 在「小说 → 导入 → 网页扩展」可安装原创示例，或选择自行取得的 JSON / ZIP，核对访问范围与来源声明后确认。
 新版的「创建站点扩展」支持填写 HTTPS 来源、正文、章节标题、书名、目录与下一章 CSS 选择器，校验后安装或导出 JSON。
-来源授权依据、说明与 HTTPS 参考链接必填，不会自动把第三方站点标为已授权。
+来源状态、说明与 HTTPS 参考链接必填。未知来源可以选择 `unverified`（未核实），如实说明情况后仍可安装，不要求冒称原创或已取得许可。参考链接可以是章节或来源说明页，不会自动把第三方站点标为已授权。
 
 - [下载原创示例 ZIP](https://github.com/JerryDoko/Resources_manager/releases/download/v1.2.0/Resources-Manager-Web-Extension-Demo-1.0.0.zip)
 - [下载原创示例 JSON](https://github.com/JerryDoko/Resources_manager/releases/download/v1.2.0/Resources-Manager-Web-Extension-Demo-1.0.0.json)
 - [示例内容与 MIT 授权](web-extension-demo/README.md)
 - [安装与常见错误](novel-install-help.md)
 
-v1.2.0 安装包仅支持 JSON：先解压 ZIP，再选根目录 `manifest.json`。带新入口的源码版支持直接安装 ZIP。
+v1.2.0 安装包仅支持 JSON：先解压 ZIP，再选根目录 `manifest.json`。v1.2.1 支持直接安装 ZIP。
 示例只适配仓库原创短篇《灯塔来信》，不适配第三方小说网站。示例安装不联网执行程序，导入章节需要联网；听书另需引擎与模型。
 ZIP 根目录仅允许 `manifest.json`、`README.md`、`GUIDE.md`、`LICENSE`，最多 4 个文件，总包不超过 256 KB，JSON 解压后不超过 32 KB，不允许子目录、脚本或符号链接。
 
@@ -54,7 +54,7 @@ ZIP 根目录仅允许 `manifest.json`、`README.md`、`GUIDE.md`、`LICENSE`，
 }
 ```
 
-`basis` 可为 `own-content`（原创）、`permission`（获准）、`public-domain`（公版）。
+`basis` 可为 `unverified`（未核实）、`own-content`（原创）、`permission`（获准）、`public-domain`（公版）。`unverified` 需要 v1.2.1 或更新版本，v1.2.0 的旧校验器不认识此值；不要用虚假的 `permission` 兼容旧包。
 `license` 描述扩展本身的许可，不代表小说自动获准再发布。
 所有选择器使用 CSS；书名元素也支持 meta 元素的 content 属性。
 bookLink/next 可省略。书籍目录链接是稳定去重键，建议站点作者提供。
@@ -70,4 +70,4 @@ bookLink/next 可省略。书籍目录链接是稳定去重键，建议站点作
 5. www 与非 www 是不同来源，跨域重定向与下一章来源都需要显式列出。来源是整个域名范围，不是单条页面的授权证明。
 6. 页面结构变更会使规则失效。更新扩展后再测试当前章、下一章、最后一章和重复导入；安装规则不会自动重复导入已经保存的书籍。
 
-公开包不提供盗版网站预设、真实作品正文或无限整站批量下载。用户自行安装插件也不意味着版权风险已经消失。
+主程序不内置第三方站点预设和作品正文。站点规则放在独立扩展项目中，单独打包、安装、更新与移除；现有通用网页下载、导入、去重、跨章阅读与听书逻辑保留在主程序。当前扩展包是声明式数据，不是独立抓取进程或可执行小程序。

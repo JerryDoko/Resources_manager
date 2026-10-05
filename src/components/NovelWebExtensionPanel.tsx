@@ -14,7 +14,7 @@ type Props = {
 };
 export function NovelWebExtensionPanel({ profile, extension, url, setUrl, run, loadContext, setMessage, importWeb, button }: Props) {
   const install = async (value: WebExtension) => {
-    if (!window.confirm(`安装网页扩展 ${value.name}？\n允许访问：${value.origins.join("，")}\n来源声明：${value.authorization.statement}\n授权链接：${value.authorization.reference}\n仅可导入你有权使用的内容；声明不代表应用已核验授权。${extension ? "\n将替换当前扩展，但不删除书籍与进度。" : ""}`)) return;
+    if (!window.confirm(`安装网页扩展 ${value.name}？\n允许访问：${value.origins.join("，")}\n来源声明：${value.authorization.statement}\n来源链接：${value.authorization.reference}\n${value.authorization.basis === "unverified" ? "来源授权未核实；应用不将其标为已获许可。\n" : ""}声明不代表应用已核验授权。${extension ? "\n将替换当前扩展，但不删除书籍与进度。" : ""}`)) return;
     await novelRequest(profile, "extension-install", { extension: value, confirmed: true });
     await loadContext(); setMessage("网页扩展已安装到当前工作区");
     setUrl(value.id === demo.id ? EXAMPLE_CHAPTER_URL : "");
@@ -45,7 +45,8 @@ export function NovelWebExtensionPanel({ profile, extension, url, setUrl, run, l
       {extension && <>
         <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--ink-muted)]">
           <span className="break-all">{extension.origins.join(" · ")}</span>
-          <a href={extension.authorization.reference} target="_blank" rel="noreferrer" className="underline underline-offset-4">来源授权声明</a>
+          <a href={extension.authorization.reference} target="_blank" rel="noreferrer" className="underline underline-offset-4">来源声明</a>
+          {extension.authorization.basis === "unverified" && <span>来源授权未核实</span>}
           <button className={button} onClick={() => void run(async () => {
             await novelRequest(profile, "extension-remove"); await loadContext(); setMessage("网页扩展已移除，已保存的本地书籍未修改");
           })}>移除扩展</button>

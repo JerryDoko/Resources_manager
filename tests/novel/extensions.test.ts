@@ -25,3 +25,11 @@ test("扩展隔离、重启读取、卸载和来源限制",async()=>{
   const b=createProfile("扩展隔离");setActiveProfile(b.id);assert.equal(webExtension(b.id),null);setActiveProfile(p);
   removeWebExtension(p);assert.equal(webExtension(p),null);assert.throws(()=>fetchChapter(p,"https://example.org/1"),/先自行安装/);
 });
+test("未知来源可以如实声明并安装，但仍需确认且不能扩大访问范围",()=>{
+  const p=getActiveProfileId(),unknown={...value,authorization:{basis:"unverified",statement:"此适配仅声明公开页面的结构规则，站点与内容来源授权尚未核实。",reference:"https://example.org/chapter"}};
+  assert.throws(()=>installWebExtension(p,unknown,false),/确认/);
+  const extension=installWebExtension(p,unknown,true);
+  assert.equal(extension.authorization.basis,"unverified");assert.equal(webExtension(p)?.authorization.basis,"unverified");
+  assert.throws(()=>assertWebOrigin(extension,"https://different.example/chapter"),/未授权/);
+  removeWebExtension(p);assert.equal(webExtension(p),null);
+});

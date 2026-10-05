@@ -18,8 +18,8 @@ const schema = z.object({
   name: z.string().trim().min(1).max(80),
   version: z.string().trim().min(1).max(40),
   license: z.string().trim().min(1).max(100),
-  // This is the publisher's assertion, not verification of a site's legal status.
-  authorization: z.object({ basis: z.enum(["own-content", "permission", "public-domain"]), statement: z.string().trim().min(20).max(2000), reference: z.string().url().refine(value=>{const u=new URL(value);return u.protocol==="https:"&&!u.username&&!u.password;},"授权声明必须是 HTTPS 链接") }).strict(),
+  // Unverified sources must not masquerade as a verified permission grant.
+  authorization: z.object({ basis: z.enum(["unverified", "own-content", "permission", "public-domain"]), statement: z.string().trim().min(20).max(2000), reference: z.string().url().refine(value=>{const u=new URL(value);return u.protocol==="https:"&&!u.username&&!u.password;},"来源说明必须是 HTTPS 链接") }).strict(),
   origins: z.array(origin).min(1).max(10),
   selectors: z.object({ content: selector, title: selector, bookTitle: selector, bookLink: selector.optional(), next: selector.optional() }).strict(),
 }).strict();
@@ -29,8 +29,8 @@ export function validateWebExtension(value: unknown) {
   if (result.success) return result.data;
   const labels: Record<string, string> = {
     format: "协议格式", id: "扩展 ID", name: "扩展名称", version: "版本", license: "扩展许可证",
-    authorization: "来源授权声明", "authorization.basis": "来源授权依据", "authorization.statement": "授权说明（至少 20 字）",
-    "authorization.reference": "授权说明 HTTPS 链接", origins: "允许的 HTTPS 来源", selectors: "CSS 规则",
+    authorization: "来源声明", "authorization.basis": "来源状态", "authorization.statement": "来源说明（至少 20 字）",
+    "authorization.reference": "来源说明 HTTPS 链接", origins: "允许的 HTTPS 来源", selectors: "CSS 规则",
     "selectors.content": "正文 CSS", "selectors.title": "章节标题 CSS", "selectors.bookTitle": "书名 CSS",
     "selectors.bookLink": "目录链接 CSS", "selectors.next": "下一章 CSS",
   };
@@ -46,7 +46,7 @@ export function webExtension(profileId: string): WebExtension | null {
   try { return validateWebExtension(JSON.parse(fs.readFileSync(file(profileId), "utf8"))); } catch { return null; }
 }
 export function installWebExtension(profileId: string, value: unknown, confirmed: unknown) {
-  if (confirmed !== true) throw new Error("安装网页扩展前需要确认来源授权与访问范围");
+  if (confirmed !== true) throw new Error("安装网页扩展前需要确认来源声明与访问范围");
   const extension = validateWebExtension(value), dest = file(profileId), temp = `${dest}.${randomUUID()}.tmp`;
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   try { fs.writeFileSync(temp, JSON.stringify(extension, null, 2), { mode: 0o600 }); fs.renameSync(temp, dest); }

@@ -78,7 +78,7 @@ export function parseWebChapter(html:string,source:string,extension:WebExtension
 const scope=globalThis as typeof globalThis & { rmNovelDownloads?:Map<string,Promise<WebChapter>> };
 const downloads=scope.rmNovelDownloads ||= new Map();
 export function fetchChapter(profileId:string,url:string) {
-  const extension=webExtension(profileId);if(!extension)throw new Error("请先自行安装有来源授权声明的网页扩展；本地章节不受影响");
+  const extension=webExtension(profileId);if(!extension)throw new Error("请先自行安装有来源声明的网页扩展；本地章节不受影响");
   assertWebOrigin(extension,url);
   const key=`${profileId}:${JSON.stringify(extension)}:${normalizeURL(url)}`;let task=downloads.get(key);
   if(!task){task=downloadPage(url,extension).then(p=>{const current=webExtension(profileId);if(JSON.stringify(current)!==JSON.stringify(extension))throw new Error("网页扩展已变更，下载已取消");return parseWebChapter(p.html,p.url,extension);});downloads.set(key,task);void task.finally(()=>downloads.delete(key)).catch(()=>{});}return task;
