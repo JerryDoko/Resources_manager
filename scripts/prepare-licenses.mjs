@@ -33,6 +33,16 @@ const nodeVersion=process.env.RM_RUNTIME_NODE_VERSION||'20.15.1';
 download(`https://raw.githubusercontent.com/nodejs/node/v${nodeVersion}/LICENSE`,path.join(out,'Node-LICENSE'));
 const inventory=[];
 const modules=path.join(root,'dist-pack/server/node_modules');
+function copyLicenseTree(source,dest){
+  if(!fs.existsSync(source))return;
+  for(const entry of fs.readdirSync(source,{withFileTypes:true})){
+    const from=path.join(source,entry.name),to=path.join(dest,entry.name);
+    if(entry.isDirectory())copyLicenseTree(from,to);
+    else if(entry.isFile()&&/^(licen[sc]e|copying|notice)([.-]|$)/i.test(entry.name)){
+      fs.mkdirSync(dest,{recursive:true});fs.copyFileSync(from,to);
+    }
+  }
+}
 function collectPackage(source, relative, placement) {
   const pkg=JSON.parse(fs.readFileSync(path.join(source,'package.json'),'utf8'));
   if(!pkg.name||!pkg.version||inventory.some(p=>p.path===relative))return;
@@ -40,6 +50,7 @@ function collectPackage(source, relative, placement) {
   for(const name of fs.readdirSync(source))if(/^(licen[sc]e|copying|notice)([.-]|$)/i.test(name)||/^licenses$/i.test(name)){
     fs.mkdirSync(dest,{recursive:true});fs.cpSync(path.join(source,name),path.join(dest,name),{recursive:true});notices.push(name);
   }
+  if(pkg.name==='next'){copyLicenseTree(path.join(source,'dist/compiled'),path.join(dest,'compiled'));notices.push('compiled/');}
   if(!notices.length&&pkg.name==='@next/env'){fs.mkdirSync(dest,{recursive:true});fs.copyFileSync(path.join(root,'node_modules/next/license.md'),path.join(dest,'LICENSE'));notices.push('LICENSE');}
   if(!notices.length&&pkg.name==='client-only'){fs.mkdirSync(dest,{recursive:true});fs.copyFileSync(path.join(root,'node_modules/react/LICENSE'),path.join(dest,'LICENSE'));notices.push('LICENSE');}
   if(!notices.length&&pkg.name.startsWith('@edge-runtime/')){download('https://raw.githubusercontent.com/vercel/edge-runtime/main/LICENSE.md',path.join(dest,'LICENSE'));notices.push('LICENSE');}
