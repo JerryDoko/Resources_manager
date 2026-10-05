@@ -4,6 +4,7 @@ import { Gauge, RotateCcw, Save, TestTubeDiagonal } from "lucide-react";
 import { novelFetch, novelRequest } from "@/lib/novel/client";
 import type { PerformanceMode, PerformanceSettings } from "@/lib/novel/performance-settings";
 import type { BenchmarkResult } from "@/lib/novel/worker-probe";
+import { NovelHelpLink } from "./NovelHelpLink";
 
 const modes: { value: PerformanceMode; label: string; threads?: number }[] = [
   { value: "low", label: "低占用", threads: 1 }, { value: "balanced", label: "均衡", threads: 2 },
@@ -40,6 +41,7 @@ export function NovelPerformanceSettings() {
   return <details className="border-t border-[var(--line)] pt-4">
     <summary className="cursor-pointer text-sm font-medium"><Gauge size={16} className="mr-2 inline-block"/>听书性能设置</summary>
     <div className="mt-3 space-y-3">
+      <NovelHelpLink section="performance">线程选择与生成速度</NovelHelpLink>
       <fieldset disabled={busy || !profile} className="space-y-3 disabled:opacity-60">
         <div className="flex flex-wrap items-center gap-3">
           <label htmlFor={`${id}-mode`} className="text-sm">模式</label>

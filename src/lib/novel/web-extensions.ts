@@ -24,7 +24,23 @@ const schema = z.object({
   selectors: z.object({ content: selector, title: selector, bookTitle: selector, bookLink: selector.optional(), next: selector.optional() }).strict(),
 }).strict();
 export type WebExtension = z.infer<typeof schema>;
-export const validateWebExtension = (value: unknown) => schema.parse(value);
+export function validateWebExtension(value: unknown) {
+  const result = schema.safeParse(value);
+  if (result.success) return result.data;
+  const labels: Record<string, string> = {
+    format: "协议格式", id: "扩展 ID", name: "扩展名称", version: "版本", license: "扩展许可证",
+    authorization: "来源授权声明", "authorization.basis": "来源授权依据", "authorization.statement": "授权说明（至少 20 字）",
+    "authorization.reference": "授权说明 HTTPS 链接", origins: "允许的 HTTPS 来源", selectors: "CSS 规则",
+    "selectors.content": "正文 CSS", "selectors.title": "章节标题 CSS", "selectors.bookTitle": "书名 CSS",
+    "selectors.bookLink": "目录链接 CSS", "selectors.next": "下一章 CSS",
+  };
+  const issues = result.error.issues.slice(0, 3).map(issue => {
+    const key = issue.path.filter(part => typeof part === "string").join(".");
+    const label = labels[key] || "声明字段";
+    return /[\u4e00-\u9fff]/.test(issue.message) ? `${label}：${issue.message}` : `请检查${label}`;
+  });
+  throw new Error(`扩展声明无效：${issues.join("；")}`);
+}
 const file = (profileId: string) => path.join(getProfileDataDir(profileId), "web-novel-extension.json");
 export function webExtension(profileId: string): WebExtension | null {
   try { return validateWebExtension(JSON.parse(fs.readFileSync(file(profileId), "utf8"))); } catch { return null; }

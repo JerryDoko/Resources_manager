@@ -1,0 +1,20 @@
+{
+  "format": "resources-manager.web-novel.v1",
+  "id": "resources-manager-original-demo",
+  "name": "原创示例 · 灯塔来信",
+  "version": "1.0.0",
+  "license": "MIT",
+  "authorization": {
+    "basis": "own-content",
+    "statement": "此扩展仅演示 Resources Manager 仓库中原创短篇《灯塔来信》的导入与续章，示例文本按 MIT 许可提供，不包含第三方小说站点适配规则。",
+    "reference": "https://github.com/JerryDoko/Resources_manager/blob/main/docs/web-extension-demo/README.md"
+  },
+  "origins": ["https://raw.githubusercontent.com"],
+  "selectors": {
+    "content": "article.chapter",
+    "title": "h1.chapter-title",
+    "bookTitle": "meta[name='book-title']",
+    "bookLink": "a[rel='index']",
+    "next": "a[rel='next']"
+  }
+}
