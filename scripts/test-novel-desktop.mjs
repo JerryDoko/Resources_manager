@@ -70,6 +70,12 @@ try{
   await page.getByRole('button',{name:'导入',exact:true}).click();
   await expect(page.getByRole('button',{name:'导入网页',exact:true})).toBeVisible();
   await expect(page.getByRole('button',{name:'小说导入',exact:true})).toHaveCount(0);
+  await page.route('**/api/novel?action=context',route=>route.abort('failed'));
+  await page.getByRole('button',{name:'系列',exact:true}).click();await page.getByRole('button',{name:'导入',exact:true}).click();
+  await expect(page.getByText(/无法连接本地小说服务/)).toBeVisible();
+  await expect(page.getByRole('button',{name:'导入 TXT / EPUB',exact:true})).toBeDisabled();
+  await page.unroute('**/api/novel?action=context');await page.getByRole('button',{name:'重新连接',exact:true}).click();
+  await expect(page.getByRole('button',{name:'导入 TXT / EPUB',exact:true})).toBeEnabled();
   await page.getByText('听书声音包 · 已安装',{exact:true}).click();
   await expect(page.getByRole('button',{name:'选择声音包目录',exact:true})).toBeVisible();
   await expect(page.getByRole('button',{name:'导入声音包',exact:true})).toBeDisabled();

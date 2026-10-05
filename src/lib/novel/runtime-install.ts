@@ -10,24 +10,13 @@ import { benchmarkRunning } from "./runtime-benchmark";
 type Progress={running:boolean;phase:string;done:number;total:number;error:string};
 const state=globalThis as typeof globalThis & { rmRuntimeInstall?:Progress };
 export const installation=()=>state.rmRuntimeInstall ||= {running:false,phase:"",done:0,total:0,error:""};
-const hash=(data:Buffer)=>createHash("sha256").update(data).digest("hex");
+async function fileHash(file:string){
+  const hash=createHash("sha256");
+  for await(const chunk of fs.createReadStream(file))hash.update(chunk);
+  return hash.digest("hex");
+}
 const target=()=>`${process.platform}-${process.arch}`;
 function destination(){return path.join(process.env.RM_KOKORO_INSTALL_ROOT || path.join(process.env.RESOURCES_MANAGER_DATA || path.join(process.cwd(),"data"),"kokoro-runtime"),"bundle",target());}
-async function verifyCopy(source:string,dest:string,modelOnly=false){
-  const manifestFile=path.join(kokoroPaths().root,"manifests",`${target()}.json`);
-  const manifest=JSON.parse(fs.readFileSync(manifestFile,"utf8")) as {sha256:Record<string,string>};
-  const entries=Object.entries(manifest.sha256).filter(([name])=>!modelOnly||name.startsWith("model/"));
-  const p=installation();p.phase="校验并安装";p.total=entries.length;p.done=0;
-  for(const [name,expected] of entries){
-    if(name.includes("..")||path.isAbsolute(name))throw new Error("声音清单路径无效");
-    const from=path.join(source,name),to=path.join(dest,name),data=await fs.promises.readFile(from);
-    if(hash(data)!==expected)throw new Error(`声音包校验失败: ${name}`);
-    await fs.promises.mkdir(path.dirname(to),{recursive:true});await fs.promises.writeFile(to,data);
-    if(name.startsWith("python/bin/")||name.endsWith(".so")||name.endsWith(".dylib"))await fs.promises.chmod(to,0o755);
-    p.done++;
-  }
-  return manifestFile;
-}
 const requiredModelFiles = ["voices.bin", "tokens.txt", "lexicon-us-en.txt", "lexicon-zh.txt", "date-zh.fst", "number-zh.fst", "phone-zh.fst", "LICENSE"];
 export function findModelDirectory(directory: unknown) {
   if (typeof directory !== "string" || !directory.trim() || !path.isAbsolute(directory)) throw new Error("请选择解压后的 Kokoro 模型目录，不是 Books 书库");
@@ -57,10 +46,10 @@ async function copyModel(source: string, dest: string) {
   const p = installation(); p.phase = "复制模型"; p.done = 0; p.total = entries.length;
   const checksums: Record<string, string> = {};
   for (const name of entries) {
-    const data = await fs.promises.readFile(path.join(source, name));
     // Only model data is imported. External Python, scripts and executables are never run.
     const to = path.join(dest, "model", name); await fs.promises.mkdir(path.dirname(to), { recursive: true });
-    await fs.promises.writeFile(to, data); checksums[`model/${name.split(path.sep).join("/")}`] = hash(data); p.done++;
+    await fs.promises.copyFile(path.join(source, name), to);
+    checksums[`model/${name.split(path.sep).join("/")}`] = await fileHash(to); p.done++;
   }
   const manifest = { target: target(), model: names.includes("model.onnx") ? "kokoro-v1.1-full" : "kokoro-v1.1-int8", sha256: checksums };
   await fs.promises.writeFile(path.join(dest, "manifest.json"), JSON.stringify(manifest, null, 2));
@@ -92,12 +81,11 @@ export function installRuntime(directory?:string){
       await fs.promises.cp(path.join(bundled,"python"),path.join(stage,"python"),{recursive:true,verbatimSymlinks:true});
       if(directory){await copyModel(findModelDirectory(directory),stage);}
       else{
-        const archive=path.join(stage,"model.tar.bz2");await download("https://api.github.com/repos/k2-fsa/sherpa-onnx/releases/assets/265069793",archive);
-        if(hash(await fs.promises.readFile(archive))!=="a1e94694776049035c4f2c6529f003aaece993c76aae9a78995831c3c4dcafc6")throw new Error("下载模型校验失败，请重试");
+        const archive=path.join(stage,"model.tar.bz2");await download("https://api.github.com/repos/k2-fsa/sherpa-onnx/releases/assets/265069737",archive);
+        if(await fileHash(archive)!=="a3f4c73d043860e3fd2e5b06f36795eb81de0fc8e8de6df703245edddd87dbad")throw new Error("下载模型校验失败，请重试");
         const unpack=path.join(stage,"unpack");await fs.promises.mkdir(unpack);
         await promisify(execFile)("tar",["-xf",archive,"-C",unpack],{windowsHide:true});
-        await fs.promises.rename(path.join(unpack,"kokoro-int8-multi-lang-v1_1"),path.join(unpack,"model"));const manifest=await verifyCopy(unpack,stage,true);
-        await fs.promises.copyFile(manifest,path.join(stage,"manifest.json"));
+        await copyModel(findModelDirectory(unpack),stage);
         await fs.promises.rm(unpack,{recursive:true,force:true});await fs.promises.unlink(archive);
       }
       p.phase="校验模型并试读";

@@ -13,6 +13,14 @@
 3. 选择包含 `model.onnx` 或 `model.int8.onnx` 的目录，然后点击“导入声音包”。即使已经安装，也可以替换。
 4. 替换前会确认；应用复制文件、加载模型并生成固定中文试读，校验成功后才替换原包。生成任务或速度测试进行中时不允许替换。
 
+默认下载使用 `kokoro-multi-lang-v1_1` 完整版，与用户手动下载后解压的目录格式相同；同时仍兼容 INT8 离线导入。复制和 SHA256 校验流式处理，不把数百 MiB 模型一次性装入 Node 内存。
+
+### 本次提供的目录
+
+`/Users/hsx/Desktop/project/resources_manager/kokoro-multi-lang-v1_1` 是已解压的模型目录，可直接在“小说导入 → 听书声音包 → Kokoro 模型目录”中选择或填写，再点“导入声音包”。选择整个目录，不是单独的 `model.onnx`；不使用“迁入听页书库”入口。
+
+若出现 `Failed to fetch` / “无法连接本地小说服务”，先重新启动 Resources Manager 的内置窗口。仅在浏览器打开旧地址不能启动服务，关闭全部内置窗口会停止服务。启动后可点“重新连接”恢复入口，再导入；已下载的模型不需要重新下载。原来运行的 v1.1.11 安装包尚不包含本开发分支的这些更改，请通过项目启动脚本测试。
+
 支持选择直接模型目录，或包含 `model/`、`kokoro-multi-lang-v1_1/`、`kokoro-int8-multi-lang-v1_1/` 的上一级目录。
 
 需要模型文件、`voices.bin`、`tokens.txt`、`lexicon-us-en.txt`、`lexicon-zh.txt`、`date-zh.fst`、`number-zh.fst`、`phone-zh.fst`、`LICENSE` 和完整 `espeak-ng-data/`。必须与 sherpa-onnx Kokoro v1.1 中英模型兼容，具有 103 个音色。不是任意同名 Kokoro 包都兼容：Hugging Face 原始 PyTorch `.pth` / `.safetensors`、单独 `.pt` 音色不支持直接导入。
@@ -38,12 +46,13 @@
 
 ## 验证记录（2026-10-05）
 
-- macOS arm64、Node 20、真实 sherpa-onnx / Kokoro INT8：小说测试 46 项通过，1 项官方完整版实测条件性跳过。
+- 首轮 macOS arm64、Node 20、真实 sherpa-onnx / Kokoro INT8：小说测试 46 项通过，1 项官方完整版实测条件性跳过。随后用户提供完整目录，补测 47 项全通过，完整版不再跳过。
 - 2 线程固定中文测试：模型加载 0.676 秒，生成 8.068 秒，音频 13.422 秒，实时系数 0.601。
 - 4 线程：模型加载 0.618 秒，生成 8.576 秒，音频 13.408 秒，实时系数 0.640。当次测试 2 线程更快，不据此替用户自动改变配置。
 - 已验证速度测试不改变选择、正式缓存和阅读进度；设置保存后下一段切换进程/线程，已缓存片段仍可重用；无效包/符号链接拒绝且原模型不变。
 - Next 生产构建和类型/lint 检查通过。Electron 隔离书库验收覆盖两个设置入口、测速与保存、声音包已安装时仍可导入、取消选择、原有本地 TXT/EPUB 导入、真实朗读、悬浮窗、跨章预取和基本媒体回归。测试报告与截图在忽略目录 `test-results/novel/`，不包含用户资源。
-- 官方完整版资产约 348 MiB，下载因连接错误/超时未完成，因此没有把 INT8 测试冒称为完整版模型实测。模型目录/文件名处理已实现，但完整版实测仍需提供完整文件。
+- 使用用户提供的 `kokoro-multi-lang-v1_1` 完整版完成独立安装、103 音色模型加载及真实中文 WAV 合成，短文本生成 1.053 秒、音频 2.296 秒。该短文本与上述 INT8 固定性能文本不同，不据此比较两种模型的速度。
+- 流式导入及网络提示修复后，小说测试 50/50 通过，无跳过。Electron 实际完成该完整版的目录选择、确认替换、成功状态显示和之后的朗读；模拟服务断开显示可解释提示，恢复后“重新连接”可重新启用导入入口。窗口、续章及原有媒体回归通过，页面错误列表为空。
 - 本分支未做 Windows 实机/CI、macOS 新安装包签名或公证测试，未发布 Release。
 
-补做完整版测试：设置 `RM_TEST_KOKORO_FULL=/绝对路径/kokoro-multi-lang-v1_1` 后运行 `npm run test:novel` 和 `node scripts/test-novel-desktop.mjs`。测试使用隔离书库和安装位置，不修改用户正在使用的声音包。
+重复完整版测试：设置 `RM_TEST_KOKORO_FULL=/绝对路径/kokoro-multi-lang-v1_1` 后运行 `npm run test:novel` 和 `node scripts/test-novel-desktop.mjs`。测试使用隔离书库和安装位置，不修改用户正在使用的声音包。

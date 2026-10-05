@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useId, useState } from "react";
 import { Gauge, RotateCcw, Save, TestTubeDiagonal } from "lucide-react";
-import { novelRequest } from "@/lib/novel/client";
+import { novelFetch, novelRequest } from "@/lib/novel/client";
 import type { PerformanceMode, PerformanceSettings } from "@/lib/novel/performance-settings";
 import type { BenchmarkResult } from "@/lib/novel/worker-probe";
 
@@ -17,7 +17,7 @@ export function NovelPerformanceSettings() {
   const [result, setResult] = useState<(BenchmarkResult & { mode: PerformanceMode }) | null>(null);
   useEffect(() => {
     const abort = new AbortController();
-    void fetch("/api/novel?action=performance", { signal: abort.signal }).then(async r => {
+    void novelFetch("/api/novel?action=performance", { signal: abort.signal }).then(async r => {
       const data = await r.json(); if (!r.ok) throw new Error(data.error);
       setSettings(data.settings); setLimit(data.maxThreads); setProfile(data.profileId);
     }).catch(e => { if (!abort.signal.aborted) setMessage(e.message); });

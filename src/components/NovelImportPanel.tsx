@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { BookPlus, Download, ExternalLink, FolderOpen, Upload, X } from "lucide-react";
-import { novelRequest } from "@/lib/novel/client";
+import { BookPlus, Download, ExternalLink, FolderOpen, RefreshCw, Upload, X } from "lucide-react";
+import { NovelConnectionError, novelFetch, novelRequest } from "@/lib/novel/client";
 import { useLibrary } from "@/lib/store";
 import { openNovel } from "@/lib/novel/open-reader";
 import { NovelPerformanceSettings } from "@/components/NovelPerformanceSettings";
@@ -14,21 +14,21 @@ export function NovelImportPanel({inline=false}:{inline?:boolean}){
   const [voicePath,setVoicePath]=useState(""),[model,setModel]=useState("");
   const [desktop,setDesktop]=useState(false);
   const upload=useRef<HTMLInputElement>(null);
-  const loadContext=async()=>{const r=await fetch("/api/novel?action=context"),d=await r.json();if(!r.ok)throw new Error(d.error);setProfile(d.profileId);setRuntime(d.available);setModel(d.model);};
+  const loadContext=async()=>{const r=await novelFetch("/api/novel?action=context"),d=await r.json();if(!r.ok)throw new Error(d.error);setProfile(d.profileId);setRuntime(d.available);setModel(d.model);};
   useEffect(()=>{setDesktop(!!window.rmDesktop?.chooseNovel);if(inline)void loadContext().catch(e=>setMessage(e instanceof Error?e.message:String(e)));},[inline]);
-  const run=async(fn:()=>Promise<void>)=>{setBusy(true);setMessage("");try{await fn();}catch(e){setMessage(e instanceof Error?e.message:String(e));}finally{setBusy(false);}};
+  const run=async(fn:()=>Promise<void>)=>{setBusy(true);setMessage("");try{await fn();}catch(e){if(e instanceof NovelConnectionError)setProfile("");setMessage(e instanceof Error?e.message:String(e));}finally{setBusy(false);}};
   const show=()=>{setOpen(true);void run(loadContext);};
   const importWeb=(listen:boolean)=>void run(async()=>{const result=await novelRequest<{itemId:string}>(profile,"web",{url});await refresh();setMessage("已导入当前章节，后续章节将在朗读时自动保存");if(listen){setOpen(false);openNovel({itemId:result.itemId,title:"网页小说"});}});
   const imported=async()=>{await refresh();setOpen(false);setMessage("已导入到当前工作区");};
   const localImport=()=>{if(!desktop&&!localPath.trim()){upload.current?.click();return;}void run(async()=>{const file=desktop?await window.rmDesktop!.chooseNovel!():localPath.trim();if(!file)return;await novelRequest(profile,"local-import",{file});await imported();});};
-  const uploadFile=(file:File)=>void run(async()=>{if(file.size>80*1024*1024)throw new Error("小说文件不能超过 80 MB");const form=new FormData();form.set("profileId",profile);form.set("file",file);const r=await fetch(`/api/novel?profileId=${encodeURIComponent(profile)}`,{method:"POST",body:form}),d=await r.json();if(!r.ok)throw new Error(d.error||"导入失败");await imported();});
+  const uploadFile=(file:File)=>void run(async()=>{if(file.size>80*1024*1024)throw new Error("小说文件不能超过 80 MB");const form=new FormData();form.set("profileId",profile);form.set("file",file);const r=await novelFetch(`/api/novel?profileId=${encodeURIComponent(profile)}`,{method:"POST",body:form}),d=await r.json();if(!r.ok)throw new Error(d.error||"导入失败");await imported();});
   const chooseLegacy=()=>void run(async()=>{const dir=window.rmDesktop?.chooseFolder?await window.rmDesktop.chooseFolder("迁入旧书：选择包含 catalog.json 的 Books 目录"):directory;if(!dir)return;setDirectory(dir);setPreview(await novelRequest<Preview>(profile,"legacy-preview",{directory:dir}));});
   const install=(offline:boolean)=>void run(async()=>{
     const directory=offline?voicePath.trim():undefined;
     if(offline&&!directory)throw new Error("请选择或填写解压后的 Kokoro 模型目录");
     if(runtime&&!window.confirm("替换当前听书声音包？书籍和阅读进度保持不变，校验失败会保留原声音包。"))return;
     await novelRequest(profile,"install-runtime",{directory});
-    for(;;){await new Promise(r=>setTimeout(r,500));const response=await fetch(`/api/novel?action=runtime-status&profileId=${encodeURIComponent(profile)}`);const p=await response.json();if(!response.ok)throw new Error(p.error);setMessage(`${p.phase}${p.total?` · ${Math.floor(p.done/p.total*100)}%`:""}`);if(p.error)throw new Error(p.error);if(!p.running)break;}
+    for(;;){await new Promise(r=>setTimeout(r,500));const response=await novelFetch(`/api/novel?action=runtime-status&profileId=${encodeURIComponent(profile)}`);const p=await response.json();if(!response.ok)throw new Error(p.error);setMessage(`${p.phase}${p.total?` · ${Math.floor(p.done/p.total*100)}%`:""}`);if(p.error)throw new Error(p.error);if(!p.running)break;}
     await loadContext();setMessage("声音包安装完成 · 书籍与进度未修改");
   });
   const button="inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm disabled:opacity-40";
@@ -52,12 +52,13 @@ export function NovelImportPanel({inline=false}:{inline?:boolean}){
           {runtime&&<p className="text-[var(--ink-muted)]">{model}</p>}
           <label className="block space-y-2"><span>Kokoro 模型目录</span><input aria-label="Kokoro 模型目录" value={voicePath} onChange={e=>setVoicePath(e.target.value)} placeholder="解压后的 Kokoro v1.1 中英模型目录" className="w-full min-w-0 rounded-lg border border-[var(--line)] bg-white p-2"/></label>
           <div className="flex flex-wrap gap-2">{desktop&&<button className={button} onClick={()=>void run(async()=>{const chosen=await window.rmDesktop?.chooseFolder?.("导入声音包：选择解压后的 Kokoro 模型目录（不是 Books）");if(chosen)setVoicePath(chosen);})}><FolderOpen size={16}/>选择声音包目录</button>}
-            <button className={button} disabled={!voicePath.trim()} onClick={()=>install(true)}><Upload size={16}/>导入声音包</button><button className={button} onClick={()=>install(false)}><Download size={16}/>下载默认模型</button>
+            <button className={button} disabled={!voicePath.trim()} onClick={()=>install(true)}><Upload size={16}/>导入声音包</button><button className={button} onClick={()=>install(false)}><Download size={16}/>下载默认完整版</button>
             <a className={button} href="https://k2-fsa.github.io/sherpa/onnx/tts/all/Chinese-English/kokoro-multi-lang-v1_1.html" target="_blank" rel="noreferrer"><ExternalLink size={16}/>完整版下载</a></div>
         </div></details>
       </fieldset>
       <div className="mt-5"><NovelPerformanceSettings/></div>
       {(busy||message)&&<p role="status" className="mt-4 break-words text-sm text-[var(--ink-muted)]">{message||(busy?"正在处理…":"")}</p>}
+      {!profile&&message&&<button className={`${button} mt-3`} disabled={busy} onClick={()=>void run(loadContext)}><RefreshCw size={16}/>重新连接</button>}
     </section></div>}
   </>;
 }
