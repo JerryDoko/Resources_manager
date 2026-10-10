@@ -48,7 +48,7 @@ try {
   const zipResponse = await page.request.get(new URL('/api/novel/extensions?format=zip', page.url()).href);
   assert.equal(zipResponse.status(), 200); assert.match(zipResponse.headers()['content-disposition'], /\.zip/);
   const zipFile = path.join(userData, 'demo.zip'); fs.writeFileSync(zipFile, await zipResponse.body());
-  await page.getByRole('button', { name: '移除扩展', exact: true }).click();
+  page.once('dialog', d => d.accept()); await page.getByRole('button', { name: '移除 原创示例 · 灯塔来信', exact: true }).click();
   page.once('dialog', d => d.accept()); await page.getByLabel('网页扩展 JSON', { exact: true }).setInputFiles(zipFile);
   await expect(page.getByRole('button', { name: '导入网页', exact: true })).toBeVisible();
   await page.getByText('创建站点扩展', { exact: true }).click();
@@ -58,7 +58,7 @@ try {
   await page.getByLabel('来源说明 HTTPS 链接', { exact: true }).fill('https://example.org/rights');
   await page.getByLabel('来源说明', { exact: true }).fill('此测试使用自己的原创短篇并同意复制保存与朗读，不包含第三方作品。');
   page.once('dialog', d => d.accept()); await page.getByRole('button', { name: '校验并安装', exact: true }).click();
-  await expect(page.getByText('网页扩展 · 原创站点自定义测试', { exact: true })).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: '启用 原创站点自定义测试', exact: true })).toBeChecked();
   const bad = path.join(userData, 'bad.json'); fs.writeFileSync(bad, '{"script":"malicious()"}');
   await page.getByLabel('网页扩展 JSON', { exact: true }).setInputFiles(bad);
   await expect(page.getByRole('status')).toContainText('扩展声明无效');
@@ -66,13 +66,13 @@ try {
   if (process.env.RM_TEST_EXTERNAL_EXTENSION) {
     page.once('dialog', d => { assert.match(d.message(), /来源授权未核实/); return d.accept(); });
     await page.getByLabel('网页扩展 JSON', { exact: true }).setInputFiles(process.env.RM_TEST_EXTERNAL_EXTENSION);
-    await expect(page.getByText('网页扩展 · 无错书吧 · 网页适配', { exact: true })).toBeVisible();
-    await expect(page.getByText('来源授权未核实', { exact: true })).toBeVisible();
+    await expect(page.getByRole('checkbox', { name: '启用 无错书吧 · 网页适配', exact: true })).toBeChecked();
+    await expect(page.getByText('来源授权未核实', { exact: true }).first()).toBeVisible();
     const installed = await page.evaluate(() => fetch('/api/novel?action=context').then(r => r.json()).then(d => d.webExtension));
     assert.equal(installed.id, 'wcshuba-public-html'); assert.equal(installed.authorization.basis, 'unverified');
     assert.equal(installed.selectors.content, '#content');
-    await page.getByRole('button', { name: '移除扩展', exact: true }).click();
-    await expect(page.getByRole('button', { name: '导入网页', exact: true })).toHaveCount(0);
+    page.once('dialog', d => d.accept()); await page.getByRole('button', { name: '移除 无错书吧 · 网页适配', exact: true }).click();
+    await expect(page.getByRole('checkbox', { name: '启用 原创站点自定义测试', exact: true })).toBeChecked();
   }
   await page.setViewportSize({ width: 600, height: 850 });
   await page.getByRole('button', { name: '校验并安装', exact: true }).scrollIntoViewIfNeeded();
@@ -81,7 +81,7 @@ try {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByText('创建站点扩展', { exact: true }).click();
   page.once('dialog', d => d.accept()); await page.getByRole('button', { name: '安装原创示例扩展', exact: true }).click();
-  await page.getByText('网页扩展 · 原创示例 · 灯塔来信', { exact: true }).scrollIntoViewIfNeeded();
+  await page.getByRole('checkbox', { name: '启用 原创示例 · 灯塔来信', exact: true }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(output, 'web-extension-downloads.png') });
   const waiting = app.waitForEvent('window'); await page.getByRole('link', { name: '扩展安装与制作', exact: true }).click();
   const help = await waiting; await help.waitForLoadState('domcontentloaded');

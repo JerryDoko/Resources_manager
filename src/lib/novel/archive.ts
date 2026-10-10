@@ -4,11 +4,12 @@ import { assertProfile, captureNovelWorkspace } from "./sessions";
 import { getPosition, importChapters, savePreferences, savePosition, getChapter, preferences } from "./repository";
 import { parseItemMetadata } from "@/lib/video-preferences";
 import type { NovelPreferences, Position } from "./types";
-interface ArchiveBook { sourceKey:string;title:string;chapters:{id:string;title:string;text:string;sourceURL?:string;nextURL?:string}[];preferences:NovelPreferences;position:Position|null;chapterProgress?:{chapterId:string;digest:string;progress:number;offset:number;seconds:number}[] }
+import { validateComments } from "./comments";
+interface ArchiveBook { sourceKey:string;title:string;chapters:{id:string;title:string;text:string;sourceURL?:string;nextURL?:string;comments?:string[]}[];preferences:NovelPreferences;position:Position|null;chapterProgress?:{chapterId:string;digest:string;progress:number;offset:number;seconds:number}[] }
 export function exportNovelArchive(profileId:string) {
   assertProfile(profileId);return withProfile(profileId,()=>{
     const db=getSqlite(),rows=db.prepare("SELECT s.source_key,i.id,i.title,i.metadata FROM novel_sources s JOIN media_items i ON i.id=s.item_id").all() as {source_key:string;id:string;title:string;metadata:string|null}[];
-    return {version:2,kind:"resources-manager-novels",books:rows.map(r=>({sourceKey:r.source_key,title:r.title,preferences:preferences(parseItemMetadata(r.metadata).novelPreferences),position:getPosition(profileId,r.id),chapterProgress:db.prepare("SELECT chapter_id AS chapterId,digest,progress,offset,seconds FROM novel_chapter_progress WHERE item_id=?").all(r.id),chapters:db.prepare("SELECT id,title,text,source_url AS sourceURL,next_url AS nextURL FROM novel_chapters WHERE item_id=? ORDER BY ordinal").all(r.id)}))};
+    return {version:2,kind:"resources-manager-novels",books:rows.map(r=>({sourceKey:r.source_key,title:r.title,preferences:preferences(parseItemMetadata(r.metadata).novelPreferences),position:getPosition(profileId,r.id),chapterProgress:db.prepare("SELECT chapter_id AS chapterId,digest,progress,offset,seconds FROM novel_chapter_progress WHERE item_id=?").all(r.id),chapters:(db.prepare("SELECT c.id,c.title,c.text,c.source_url AS sourceURL,c.next_url AS nextURL,m.comments FROM novel_chapters c LEFT JOIN novel_chapter_comments m ON m.chapter_id=c.id WHERE c.item_id=? ORDER BY c.ordinal").all(r.id) as {id:string;title:string;text:string;sourceURL?:string;nextURL?:string;comments:string|null}[]).map(c=>({...c,comments:c.comments?validateComments(JSON.parse(c.comments)):undefined}))}))};
   });
 }
 export async function restoreNovelArchive(profileId:string,input:unknown) {

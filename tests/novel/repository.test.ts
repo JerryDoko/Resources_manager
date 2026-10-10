@@ -9,7 +9,7 @@ import { closeDb,getSqlite } from "../../src/lib/db";
 import { getBook,getChapter,importChapters,savePosition,savePreferences,chapterSummaries,importLocalBook,importUploadedBook } from "../../src/lib/novel/repository";
 import { importLegacy,previewLegacy } from "../../src/lib/novel/legacy-import";
 import { exportBackup,importBackup,resetSeriesProgress,deleteSeries } from "../../src/lib/library";
-import { assertSession,beginSession,revokeNovelSessions,captureNovelWorkspace,invalidateNovelWorkspace } from "../../src/lib/novel/sessions";
+import { assertSession,beginSession,beginExportSession,revokeNovelSessions,captureNovelWorkspace,invalidateNovelWorkspace } from "../../src/lib/novel/sessions";
 import { tts,kokoroPaths,kokoroIdentity } from "../../src/lib/novel/tts-service";
 import { installRuntime,installation } from "../../src/lib/novel/runtime-install";
 import { getPerformance, savePerformance } from "../../src/lib/novel/performance-settings";
@@ -17,6 +17,10 @@ import { benchmarkPerformance } from "../../src/lib/novel/runtime-benchmark";
 import { scanFolder } from "../../src/lib/scanner";
 import { legacyChunkOffset } from "../../src/lib/novel/chunks";
 import { nextChapter } from "../../src/lib/novel/web-import";
+import {startAudioExport,audioExportStatus,audioExportFile,cancelAudioExport} from "../../src/lib/novel/audio-export";
+import {pcmWave} from "../../src/lib/novel/wav-export";
+import JSZip from "jszip";
+import {exportNovelArchive,restoreNovelArchive} from "../../src/lib/novel/archive";
 const temp=fs.mkdtempSync(path.join(os.tmpdir(),"rm-novel-tests-"));process.env.RESOURCES_MANAGER_DATA=path.join(temp,"data");
 after(()=>{tts().stop();revokeNovelSessions();closeDb();fs.rmSync(temp,{recursive:true,force:true});});
 test("资料增量迁移、续听、重置、旧新备份与索引删除",async()=>{
@@ -38,6 +42,28 @@ test("本地 TXT 导入去重、按章显示且原文件不变",async()=>{
   const p=getActiveProfileId(),file=path.join(temp,"local.txt"),original='第一章 归来\n他说：“回来了。”\n第二章 继续\n下一章的文字。';fs.writeFileSync(file,original);
   const first=importLocalBook(p,file),second=importLocalBook(p,file);assert.equal(first.itemId,second.itemId);
   const summary=await chapterSummaries(p,first.itemId);assert.equal(summary.chapters.length,2);assert.equal(summary.chapters[0].title,"第一章 归来");assert.equal(fs.readFileSync(file,"utf8"),original);
+});
+test("章节评论独立保存、重复导入更新，不改变正文和位置；两种备份保留评论",async()=>{
+  const p=getActiveProfileId(),input={title:"第一章",text:"用于阅读和朗读的原创正文。",sourceURL:"https://comments.invalid/one",comments:["读者甲：测试评论。"]};
+  const item=importChapters(p,"test:comments","评论测试",[input]),ch=await getChapter(p,item.itemId,item.chapterIds[0]),chunk=ch.chunks[0];
+  assert.deepEqual(ch.comments,input.comments);assert.doesNotMatch(ch.text,/读者/);assert.doesNotMatch(ch.chunks.map(c=>c.speech).join(''),/读者/);
+  const position={chapterId:ch.id,chunkId:chunk.id,offset:chunk.start,digest:chunk.digest,seconds:2,chunkVersion:1};
+  await savePosition(p,item.itemId,position);
+  const again=importChapters(p,"test:comments","评论测试",[{...input,comments:["第二次更新评论。"]}]);
+  assert.equal(again.itemId,item.itemId);assert.deepEqual(again.chapterIds,item.chapterIds);
+  assert.deepEqual((await getChapter(p,item.itemId,ch.id)).comments,["第二次更新评论。"]);
+  assert.deepEqual((await getBook(p,item.itemId)).position,position);
+  const file=(getSqlite().prepare("SELECT path FROM media_items WHERE id=?").get(item.itemId) as {path:string}).path;
+  assert.doesNotMatch(fs.readFileSync(file,'utf8'),/评论/);
+  const archive=exportNovelArchive(p),backup=exportBackup();importBackup(backup);
+  assert.deepEqual((await getChapter(p,item.itemId,ch.id)).comments,["第二次更新评论。"]);
+  const other=createProfile("评论恢复");setActiveProfile(other.id);await restoreNovelArchive(other.id,archive);
+  const restored=getSqlite().prepare("SELECT item_id FROM novel_sources WHERE source_key='test:comments'").get() as {item_id:string};
+  const book=await getBook(other.id,restored.item_id);assert.deepEqual((await getChapter(other.id,restored.item_id,book.chapters[0].id)).comments,["第二次更新评论。"]);
+  deleteSeries((getSqlite().prepare("SELECT series_id FROM media_items WHERE id=?").get(restored.item_id) as {series_id:string}).series_id);
+  assert.equal((getSqlite().prepare("SELECT COUNT(*) AS n FROM novel_chapter_comments").get() as {n:number}).n,0);
+  setActiveProfile(p);
+  assert.throws(()=>importChapters(p,"test:invalid-comments","无效",[{...input,comments:[123] as unknown as string[]}]),/评论无效/);
 });
 test("浏览器文件导入保留原文、按内容去重并限制格式",async()=>{
   const p=getActiveProfileId(),data=Buffer.from("第一章 上传\n上传原文。\n第二章 继续\n仍是原文。");
@@ -85,9 +111,9 @@ test("离线已下载章节直接续读；下一章回环停止",async()=>{
   await assert.rejects(()=>nextChapter(p,book.itemId,book.chapterIds[1],session.id),/回到已读章节/);
 });
 test("切换工作区/删除后旧会话无法写入或复活目录",async()=>{
-  const a=getActiveProfileId(),item=importChapters(a,"test:isolation","隔离",[{title:"一",text:"隔离正文。"}]);const s=beginSession(a,item.itemId),dir=getProfileDataDir(a);
+  const a=getActiveProfileId(),item=importChapters(a,"test:isolation","隔离",[{title:"一",text:"隔离正文。"}]);const s=beginSession(a,item.itemId),exported=beginExportSession(a,item.itemId),dir=getProfileDataDir(a);
   const guard=captureNovelWorkspace(a),b=createProfile("B");invalidateNovelWorkspace(a);setActiveProfile(b.id);assert.throws(()=>assertSession(a,item.itemId,s.id));assert.equal(getSqlite().prepare("SELECT * FROM novel_sources").all().length,0);
-  setActiveProfile(a);assert.throws(guard);setActiveProfile(b.id);
+  setActiveProfile(a);assert.throws(guard);assert.throws(()=>assertSession(a,item.itemId,exported.id));setActiveProfile(b.id);
   closeDb(a);deleteProfile(a);assert.equal(fs.existsSync(dir),false);await assert.rejects(()=>getBook(a,item.itemId));assert.equal(fs.existsSync(dir),false);
 });
 test("离线声音包校验失败可重试，完整包独立安装",{timeout:180000},async()=>{
@@ -105,6 +131,23 @@ test("真实 Kokoro 合成、缓存、音色、会话去重",{timeout:180000},as
   const wav=fs.readFileSync(one.path);assert.equal(wav.toString("ascii",0,4),"RIFF");assert.equal(wav.readUInt32LE(24),24000);
   const cached=await tts().synthesize(request);assert.equal(cached.cached,true);const male=await tts().synthesize({...request,voiceId:58});assert.notEqual(male.path,one.path);
   console.log(JSON.stringify({kokoroFirstWallMs:firstWallMs,firstDuration:one.duration,firstElapsed:one.elapsed,cached:cached.cached,maleElapsed:male.elapsed}));
+});
+test("真实语音按选择导出 WAV/ZIP，不抢播放会话或修改续听进度",{timeout:180000},async()=>{
+  const p=getActiveProfileId(),item=importChapters(p,"test:export","语音导出",[{title:"第一章",text:"清晨，我们开始阅读。"},{title:"第二章",text:"第二章的故事继续。"}]);
+  const chapter=await getChapter(p,item.itemId,item.chapterIds[0]),chunk=chapter.chunks[0];
+  await savePosition(p,item.itemId,{chapterId:chapter.id,chunkId:chunk.id,offset:chunk.start,digest:chunk.digest,seconds:1.2,chunkVersion:1});
+  const before=await getBook(p,item.itemId),play=beginSession(p,item.itemId);
+  const wait=async(id:string)=>{let status=audioExportStatus(p,item.itemId,id);while(status.status==="running"){await new Promise(r=>setTimeout(r,30));status=audioExportStatus(p,item.itemId,id);}assert.equal(status.status,"done",status.error);return audioExportFile(p,item.itemId,id);};
+  const one=await startAudioExport(p,item.itemId,[item.chapterIds[0]],3);assertSession(p,item.itemId,play.id);
+  const single=await wait(one.id);assert.ok(single.filename.endsWith(".wav"));assert.ok(pcmWave(fs.readFileSync(single.file)).pcm.length>1000);
+  const many=await startAudioExport(p,item.itemId,item.chapterIds,3),archive=await wait(many.id),zip=await JSZip.loadAsync(fs.readFileSync(archive.file));assert.equal(Object.keys(zip.files).length,2);
+  for(const entry of Object.values(zip.files))assert.ok(pcmWave(await entry.async("nodebuffer")).pcm.length>1000);
+  assert.deepEqual(await getBook(p,item.itemId),before);assertSession(p,item.itemId,play.id);
+  await assert.rejects(()=>startAudioExport(p,item.itemId,["missing"],3),/已保存/);
+  const cancelled=await startAudioExport(p,item.itemId,[item.chapterIds[1]],58);cancelAudioExport(p,item.itemId,cancelled.id);assert.equal(audioExportStatus(p,item.itemId,cancelled.id).status,"cancelled");
+  assertSession(p,item.itemId,play.id);assert.deepEqual(await getBook(p,item.itemId),before);
+  while(tts().isBusy())await new Promise(r=>setTimeout(r,30));
+  fs.unlinkSync(single.file);assert.throws(()=>audioExportStatus(p,item.itemId,one.id),/文件不存在/);
 });
 test("2/4 线程真实测速不保存选择、不改变书籍进度或正式缓存",{timeout:180000},async()=>{
   const p=getActiveProfileId(),item=importChapters(p,"test:performance","性能测试",[{title:"一",text:"性能测试不会改变阅读位置。"}]);

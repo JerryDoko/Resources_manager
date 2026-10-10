@@ -107,6 +107,10 @@ export const novelReadingState = sqliteTable("novel_reading_state", {
   chapterId: text("chapter_id").notNull(), chunkId: text("chunk_id").notNull(), offset: integer("offset").notNull(),
   digest: text("digest").notNull(), seconds: real("seconds").notNull().default(0), chunkVersion: integer("chunk_version").notNull(), updatedAt: integer("updated_at").notNull(),
 });
+export const novelChapterComments = sqliteTable("novel_chapter_comments", {
+  chapterId: text("chapter_id").primaryKey().references(() => novelChapters.id, { onDelete: "cascade" }),
+  comments: text("comments").notNull(),
+});
 export const novelChapterProgress = sqliteTable("novel_chapter_progress", {
   itemId: text("item_id").notNull().references(() => mediaItems.id, { onDelete: "cascade" }),
   chapterId: text("chapter_id").notNull(), digest: text("digest").notNull(), progress: real("progress").notNull().default(0),

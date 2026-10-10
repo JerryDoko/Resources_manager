@@ -1,8 +1,5 @@
 import { NextResponse } from "next/server";
-import { createRequire } from "node:module";
-
-const require = createRequire(import.meta.url);
-const pkg = require("../../../../../package.json") as { version: string };
+import packageInfo from "../../../../../package.json";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,7 +42,7 @@ function compareVersions(a: string, b: string) {
 }
 
 export async function GET() {
-  const currentVersion = pkg.version;
+  const currentVersion = packageInfo.version;
 
   try {
     const res = await fetch(RELEASES_LATEST_URL, {

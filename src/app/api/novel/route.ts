@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
+import { Readable } from "node:stream";
 import { getActiveProfileId } from "@/lib/profiles";
 import { assertProfile, assertSession, beginSession, cancelSession, captureNovelWorkspace } from "@/lib/novel/sessions";
 import { getBook, getChapter, novelItem, savePosition, savePreferences,chapterSummaries,importLocalBook,importUploadedBook } from "@/lib/novel/repository";
 import { kokoroStatus, tts } from "@/lib/novel/tts-service";
-import { importWeb, nextChapter } from "@/lib/novel/web-import";
+import { importWeb, nextChapter, openWebBrowser } from "@/lib/novel/web-import";
 import { importLegacy, previewLegacy } from "@/lib/novel/legacy-import";
 import { exportNovelArchive, restoreNovelArchive } from "@/lib/novel/archive";
 import { readEpubAsset } from "@/lib/epub";
@@ -14,7 +15,8 @@ import { PREVIEW_TEXT } from "@/lib/novel/types";
 import { installation, installRuntime, installEngine } from "@/lib/novel/runtime-install";
 import { getPerformance, savePerformance, threadLimit } from "@/lib/novel/performance-settings";
 import { benchmarkPerformance } from "@/lib/novel/runtime-benchmark";
-import { webExtension, installWebExtension, removeWebExtension } from "@/lib/novel/web-extensions";
+import { webExtension, webExtensions, installWebExtension, removeWebExtension, setWebExtensionEnabled } from "@/lib/novel/web-extensions";
+import {startAudioExport,audioExportStatus,audioExportFile,cancelAudioExport} from "@/lib/novel/audio-export";
 export const runtime="nodejs";
 export const dynamic="force-dynamic";
 const root=globalThis as typeof globalThis & { rmNovelAudio?:Map<string,{profileId:string;itemId:string;path:string}> };
@@ -24,11 +26,16 @@ const fail=(e:unknown)=>NextResponse.json({error:e instanceof Error?e.message:St
 export async function GET(req:NextRequest){
   try{
     const q=req.nextUrl.searchParams,action=q.get("action"),profileId=q.get("profileId")||getActiveProfileId();assertProfile(profileId);
-    if(action==="context")return json({profileId,...kokoroStatus(),webExtension:webExtension(profileId)});
+    if(action==="context")return json({profileId,...kokoroStatus(),webExtension:webExtension(profileId),webExtensions:webExtensions(profileId)});
     if(action==="runtime-status")return json(installation());
     if(action==="performance")return json({profileId,settings:getPerformance(),maxThreads:threadLimit()});
     if(action==="export")return new NextResponse(JSON.stringify(exportNovelArchive(profileId),null,2),{headers:{"Content-Type":"application/json","Content-Disposition":"attachment; filename=novel-books.json"}});
     const itemId=q.get("itemId")||"",item=novelItem(profileId,itemId);
+    if(action==="audio-export-status")return json(audioExportStatus(profileId,itemId,q.get("id")||""));
+    if(action==="audio-export-download"){
+      const {file,filename}=audioExportFile(profileId,itemId,q.get("id")||"");
+      return new NextResponse(Readable.toWeb(fs.createReadStream(file)) as ReadableStream<Uint8Array>,{headers:{"Content-Type":filename.endsWith(".zip")?"application/zip":"audio/wav","Content-Length":String(fs.statSync(file).size),"Content-Disposition":`attachment; filename=novel-audio.${filename.endsWith(".zip")?"zip":"wav"}; filename*=UTF-8''${encodeURIComponent(filename)}`,"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"}});
+    }
     if(action==="asset"){
       const asset=await readEpubAsset(item.path,q.get("href")||"");assertProfile(profileId);
       const ext=path.extname(asset.href).toLowerCase();const mime:Record<string,string>={".png":"image/png",".jpg":"image/jpeg",".jpeg":"image/jpeg",".gif":"image/gif",".webp":"image/webp",".svg":"image/svg+xml",".css":"text/css"};
@@ -60,7 +67,8 @@ export async function POST(req:NextRequest){
     const body=await req.json(),{action,profileId,itemId,sessionId}=body;assertProfile(profileId);
     if(action==="install-engine")return json(installEngine(body.confirmed));
     if(action==="extension-install")return json(installWebExtension(profileId,body.extension,body.confirmed));
-    if(action==="extension-remove"){removeWebExtension(profileId);return json({ok:true});}
+    if(action==="extension-remove"){removeWebExtension(profileId,body.id);return json({ok:true});}
+    if(action==="extension-enabled")return json(setWebExtensionEnabled(profileId,body.id,body.enabled));
     if(action==="install-runtime")return json(installRuntime(body.directory));
     if(action==="performance-save")return json(savePerformance(body.settings));
     if(action==="performance-test"){
@@ -69,14 +77,18 @@ export async function POST(req:NextRequest){
     }
     if(action==="local-import")return json(importLocalBook(profileId,body.file));
     if(action==="web")return json(await importWeb(profileId,body.url));
+    if(action==="web-open")return json(await openWebBrowser(profileId,body.url));
     if(action==="legacy-preview")return json(previewLegacy(profileId,body.directory));
     if(action==="legacy-import")return json(await importLegacy(profileId,body.token));
     if(action==="restore")return json(await restoreNovelArchive(profileId,body.archive));
     novelItem(profileId,itemId);
+    if(action==="audio-export-start")return json(await startAudioExport(profileId,itemId,body.chapterIds,body.voiceId,body.encoding));
+    if(action==="audio-export-cancel")return json(cancelAudioExport(profileId,itemId,body.id));
     if(action==="book")return json(await getBook(profileId,itemId,body.encoding));
     if(action==="chapters-summary")return json(await chapterSummaries(profileId,itemId));
     if(action==="chapter")return json(await getChapter(profileId,itemId,body.chapterId,body.encoding));
     if(action==="preferences")return json(savePreferences(profileId,itemId,body.preferences));
+    if(action==="reading-progress"){const guard=captureNovelWorkspace(profileId);await savePosition(profileId,itemId,body.position,body.encoding,body.played!==false,guard);return json({ok:true});}
     if(action==="begin")return json(beginSession(profileId,itemId));
     if(action==="cancel"){cancelSession(sessionId);return json({ok:true});}
     assertSession(profileId,itemId,sessionId);

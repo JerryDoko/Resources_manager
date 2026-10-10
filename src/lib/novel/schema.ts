@@ -9,6 +9,10 @@ CREATE TABLE IF NOT EXISTS novel_chapters (
  source_url TEXT, next_url TEXT, UNIQUE(item_id, source_url)
 );
 CREATE INDEX IF NOT EXISTS novel_chapters_item_idx ON novel_chapters(item_id, ordinal);
+CREATE TABLE IF NOT EXISTS novel_chapter_comments (
+ chapter_id TEXT PRIMARY KEY REFERENCES novel_chapters(id) ON DELETE CASCADE,
+ comments TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS novel_reading_state (
  item_id TEXT PRIMARY KEY REFERENCES media_items(id) ON DELETE CASCADE,
  chapter_id TEXT NOT NULL, chunk_id TEXT NOT NULL, offset INTEGER NOT NULL,

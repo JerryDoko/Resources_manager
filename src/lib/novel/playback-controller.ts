@@ -1,15 +1,17 @@
 import { novelRequest } from "./client";
 import { type Chapter, type Clip, type NovelBook, type NovelPreferences, type Position } from "./types";
-export interface PlaybackState { book: NovelBook | null; chapter: Chapter | null; index: number; seconds: number; playing: boolean; status: string; error: string; notice: string; buffered: number; nextReady: string; underruns: number; elapsed: number; preview: boolean }
+export interface PlaybackState { book: NovelBook | null; chapter: Chapter | null; index: number; seconds: number; playing: boolean; status: string; error: string; notice: string; buffered: number; nextReady: string; underruns: number; elapsed: number; preview: boolean; locationVersion: number; chapterLoading: "previous" | "next" | null }
 type Request = <T>(action: string, payload?: Record<string, unknown>) => Promise<T>;
 export class NovelPlayback {
-  state: PlaybackState = { book:null,chapter:null,index:0,seconds:0,playing:false,status:"加载中",error:"",notice:"",buffered:0,nextReady:"",underruns:0,elapsed:0,preview:false };
+  state: PlaybackState = { book:null,chapter:null,index:0,seconds:0,playing:false,status:"加载中",error:"",notice:"",buffered:0,nextReady:"",underruns:0,elapsed:0,preview:false,locationVersion:0,chapterLoading:null };
+  navigationVersion=0;
   listeners = new Set<() => void>();
   generation=0; session=""; audio: HTMLAudioElement | null=null; utterance: SpeechSynthesisUtterance | null=null;
   clipCache=new Map<string,Clip>(); nextCache=new Map<string,Promise<Chapter|null>>();
   encoding="auto"; closed=false; heartbeat: ReturnType<typeof setInterval>|null=null;
   channel: BroadcastChannel|null=null; lastSave=0; transition: Promise<void>=Promise.resolve();
   preferenceWrites: Promise<unknown>=Promise.resolve();
+  positionWrites: Promise<unknown>=Promise.resolve();
   lastCompleted: Position|null=null;
   request: Request;
   constructor(readonly profileId:string,readonly itemId:string,readonly makeAudio=()=>new Audio(), request?: Request) {
@@ -18,13 +20,14 @@ export class NovelPlayback {
   subscribe=(fn:()=>void)=>{this.listeners.add(fn);return()=>{this.listeners.delete(fn);};};
   snapshot=()=>this.state;
   set(patch:Partial<PlaybackState>){if(this.closed)return;this.state={...this.state,...patch};for(const fn of this.listeners)fn();}
-  async load(encoding="auto") {
+  async load(encoding="auto",requestedChapter?:string) {
     this.closed=false;
+    ++this.navigationVersion;this.set({chapterLoading:null});
     if(!this.channel && typeof BroadcastChannel!=="undefined") { this.channel=new BroadcastChannel("rm-novel-playback");this.channel.onmessage=e=>{if(e.data?.session && e.data.session!==this.session && (this.state.playing||this.state.preview))void this.pause("另一窗口已开始朗读");}; }
-    await this.pause();this.encoding=encoding;const token=++this.generation;
+    await this.pause();await this.positionWrites.catch(()=>{});this.encoding=encoding;const token=++this.generation;
     try {
       const book=await this.request<NovelBook>("book");if(token!==this.generation||this.closed)return;
-      const pos=book.position, chapterId=book.chapters.some(c=>c.id===pos?.chapterId)?pos!.chapterId:book.chapters[0]?.id;
+      const pos=requestedChapter?null:book.position, chapterId=requestedChapter||(book.chapters.some(c=>c.id===pos?.chapterId)?pos!.chapterId:book.chapters[0]?.id);
       if(!chapterId)throw new Error("此书没有章节");
       const chapter=await this.request<Chapter>("chapter",{chapterId});if(token!==this.generation||this.closed)return;
       let index=0, seconds=0, notice="";
@@ -33,12 +36,16 @@ export class NovelPlayback {
         if(exact>=0&&pos.chunkVersion===1){index=exact;seconds=pos.seconds;}
         else { const matches=chapter.chunks.map((c,i)=>({c,i})).filter(x=>x.c.digest===pos.digest).sort((a,b)=>Math.abs(a.c.start-pos.offset)-Math.abs(b.c.start-pos.offset)); index=matches[0]?.i??Math.max(0,chapter.chunks.findIndex(c=>c.end>pos.offset));notice="正文或编码已变化，已定位到附近原文，请确认续听位置"; }
       }
-      this.set({book,chapter,index,seconds,status:"就绪",error:"",notice});
+      this.set({book,chapter,index,seconds,status:"就绪",error:"",notice,locationVersion:this.state.locationVersion+1});
+      if(requestedChapter)await this.saveReadingPosition(false);
     }catch(e){if(token===this.generation)this.fail(e);}
   }
   stopAudio(){if(this.audio){this.audio.onended=null;this.audio.ontimeupdate=null;this.audio.onerror=null;this.audio.pause();this.audio.removeAttribute("src");this.audio.load();this.audio=null;}if(this.utterance){this.utterance.onend=null;this.utterance=null;globalThis.speechSynthesis?.cancel();}}
   position():Position|null {const c=this.state.chapter,chunk=c?.chunks[this.state.index];return c&&chunk?{chapterId:c.id,chunkId:chunk.id,offset:chunk.start,digest:chunk.digest,seconds:!this.state.preview&&this.audio?this.audio.currentTime:this.state.seconds,chunkVersion:1}:null;}
-  async persist(session=this.session,position=this.position(),played=true){if(!session||!position)return;await this.request("progress",{sessionId:session,position,played}).catch(()=>{});}
+  writePosition(action:string,payload:Record<string,unknown>){this.positionWrites=this.positionWrites.catch(()=>{}).then(()=>this.request(action,payload));return this.positionWrites.catch(e=>this.set({error:e instanceof Error?e.message:String(e)}));}
+  async persist(session=this.session,position=this.position(),played=true){if(!session||!position)return;await this.writePosition("progress",{sessionId:session,position,played});}
+  async saveReadingPosition(played=true){const position=this.position();if(position)await this.writePosition("reading-progress",{position,played});}
+  readAt(index:number){if(this.state.chapterLoading||this.state.playing||this.state.preview||!this.state.chapter||index===this.state.index)return;this.set({index:Math.max(0,Math.min(index,this.state.chapter.chunks.length-1)),seconds:0});void this.saveReadingPosition();}
   async pause(status="已暂停") {
     const old=this.session, position=this.position(); ++this.generation;
     if(this.heartbeat)clearInterval(this.heartbeat);this.heartbeat=null;
@@ -49,7 +56,7 @@ export class NovelPlayback {
     return this.transition;
   }
   async claim(){
-    await this.transition;
+    await this.transition;await this.positionWrites.catch(()=>{});
     const token=this.generation;
     const session=await this.request<{id:string}>("begin");
     if(token!==this.generation||this.closed){void this.request("cancel",{sessionId:session.id});return false;}
@@ -77,7 +84,7 @@ export class NovelPlayback {
       if(index<chapter.chunks.length){index++;continue;}
       if(seen.has(chapter.id))throw new Error("下一章出现回环，已停止朗读");seen.add(chapter.id);
       const next=await this.next(chapter);if(!this.valid(token))return;
-      if(!next){if(this.lastCompleted)await this.request("progress",{sessionId:this.session,position:this.lastCompleted,completed:true});if(!this.valid(token))return;this.set({index:Math.max(0,chapter.chunks.length-1),seconds:this.lastCompleted?.seconds||0});await this.pause("已读完");return;}
+      if(!next){if(this.lastCompleted)await this.writePosition("progress",{sessionId:this.session,position:this.lastCompleted,completed:true});if(!this.valid(token))return;this.set({index:Math.max(0,chapter.chunks.length-1),seconds:this.lastCompleted?.seconds||0});await this.pause("已读完");return;}
       chapter=next;index=0;
     }
     const book=this.state.book!;
@@ -103,7 +110,7 @@ export class NovelPlayback {
     audio.onloadedmetadata=()=>{if(this.audio===audio&&seconds>0)audio.currentTime=Math.min(seconds,Math.max(0,audio.duration-0.05));};
     let ended=false;
     audio.onended=()=>{if(ended||!this.valid(token)||this.audio!==audio)return;ended=true;
-      if(!preview){this.lastCompleted={...this.position()!,seconds:audio.duration};void this.request("progress",{sessionId:this.session,position:this.lastCompleted,chapterCompleted:this.state.index===this.state.chapter!.chunks.length-1}).catch(()=>{});}
+      if(!preview){this.lastCompleted={...this.position()!,seconds:audio.duration};void this.writePosition("progress",{sessionId:this.session,position:this.lastCompleted,chapterCompleted:this.state.index===this.state.chapter!.chunks.length-1});}
       this.audio=null;
       if(preview){this.set({preview:false,status:"试听完成"});void this.pause("试听完成");}
       else void this.advance(token);
@@ -137,16 +144,32 @@ export class NovelPlayback {
   }
   async seek(chapterId:string,index=0,resume=this.state.playing){
     await this.pause();const token=this.generation;
-    try{const chapter=await this.request<Chapter>("chapter",{chapterId});if(token!==this.generation||this.closed)return;this.set({chapter,index:Math.max(0,Math.min(index,chapter.chunks.length-1)),seconds:0,error:""});if(resume)await this.play();}catch(e){if(token===this.generation)this.fail(e);}
+    try{const chapter=await this.request<Chapter>("chapter",{chapterId});if(token!==this.generation||this.closed)return;this.set({chapter,index:Math.max(0,Math.min(index,chapter.chunks.length-1)),seconds:0,error:"",locationVersion:this.state.locationVersion+1});await this.saveReadingPosition(false);if(token!==this.generation||this.closed)return;if(resume)await this.play();}catch(e){if(token===this.generation)this.fail(e);}
   }
-  async skip(delta:number){const chapter=this.state.chapter;if(!chapter)return;const next=this.state.index+delta;
+  async skip(delta:number){const chapter=this.state.chapter;if(this.state.chapterLoading||!chapter)return;const next=this.state.index+delta;
     if(next>=0&&next<chapter.chunks.length)return this.seek(chapter.id,next);
     return this.changeChapter(delta);
   }
-  async changeChapter(delta:number){const book=this.state.book,chapter=this.state.chapter;if(!book||!chapter)return;const resume=this.state.playing;
-    const index=book.chapters.findIndex(c=>c.id===chapter.id);const ch=book.chapters[index+delta];
-    if(ch)return this.seek(ch.id,0,resume);
-    if(delta>0){try{if(!this.session&&!await this.claim())return;const token=this.generation;const next=await this.next(chapter);if(next&&this.valid(token))await this.seek(next.id,0,resume);}catch(e){this.fail(e);}}
+  async changeChapter(delta:number){
+    const book=this.state.book,chapter=this.state.chapter;
+    if(this.closed||this.state.chapterLoading||!book||!chapter)return;
+    const resume=this.state.playing, navigation=++this.navigationVersion;
+    this.set({chapterLoading:delta>0?"next":"previous",error:"",notice:""});
+    let token=this.generation;
+    try{
+      const index=book.chapters.findIndex(c=>c.id===chapter.id),ch=book.chapters[index+delta];
+      if(ch){await this.seek(ch.id,0,resume);return;}
+      if(delta<0){this.set({notice:"已经是第一章"});return;}
+      await this.pause("正在加载下一章");token=this.generation;
+      if(navigation!==this.navigationVersion||this.closed||!await this.claim())return;
+      const next=await this.next(chapter);
+      if(navigation!==this.navigationVersion||!this.valid(token))return;
+      if(!next){await this.pause("就绪");if(resume)await this.play();if(navigation===this.navigationVersion)this.set({notice:"没有可加载的下一章"});return;}
+      const currentBook=this.state.book!;
+      if(!currentBook.chapters.some(c=>c.id===next.id))this.set({book:{...currentBook,chapters:[...currentBook.chapters,{id:next.id,title:next.title}]}});
+      await this.seek(next.id,0,resume);
+    }catch(e){if(navigation===this.navigationVersion&&token===this.generation&&!this.closed)this.fail(e);}
+    finally{if(navigation===this.navigationVersion)this.set({chapterLoading:null});}
   }
   async update(patch:Partial<NovelPreferences>){
     if(!this.state.book)return;const old=this.state.book.preferences,prefs={...old,...patch};
@@ -160,5 +183,5 @@ export class NovelPlayback {
   }
   async preview(){await this.pause();const token=this.generation;try{if(!await this.claim())return;this.set({preview:true,status:"正在生成试听",error:""});const clip=await this.request<Clip>("preview",{sessionId:this.session,voiceId:this.state.book!.preferences.voiceId});if(this.valid(token))await this.playClip(clip,token,true);}catch(e){if(this.valid(token))this.fail(e);}}
   fail(e:unknown){void this.pause("已停止，可重试");this.set({error:e instanceof Error?e.message:String(e)});}
-  close(){void this.pause();this.closed=true;this.channel?.close();this.channel=null;}
+  close(){++this.navigationVersion;this.set({chapterLoading:null});void this.pause();this.closed=true;this.channel?.close();this.channel=null;}
 }

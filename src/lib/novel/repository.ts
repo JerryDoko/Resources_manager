@@ -11,6 +11,7 @@ import { parseItemMetadata } from "@/lib/video-preferences";
 import { assertProfile } from "./sessions";
 import { digest, splitChapters, splitChunks } from "./chunks";
 import { DEFAULT_PREFERENCES, RATES, type Chapter, type NovelBook, type NovelPreferences, type Position } from "./types";
+import { validateComments } from "./comments";
 
 interface Item { id: string; title: string; path: string; media_type: string; metadata: string | null; series_id: string }
 interface ChapterRow { id: string; item_id: string; ordinal: number; title: string; text: string; digest: string; source_url: string | null; next_url: string | null }
@@ -81,12 +82,15 @@ export async function getBook(profileId: string, itemId: string, encoding = "aut
       if (relocated) position = { ...saved, chapterId: relocated.id, seconds: 0, chunkVersion: 0 };
     }
   }
-  return { itemId, profileId, title: item.title, format: content.format, chapters: content.chapters.map(c => ({ id: c.id, title: c.title })), preferences: preferences(parseItemMetadata(item.metadata).novelPreferences), position, encoding: content.encoding };
+  return { itemId, profileId, title: item.title, storagePath:item.path, format: content.format, chapters: content.chapters.map(c => ({ id: c.id, title: c.title })), preferences: preferences(parseItemMetadata(item.metadata).novelPreferences), position, encoding: content.encoding };
 }
 export async function getChapter(profileId: string, itemId: string, chapterId: string, encoding = "auto") {
   novelItem(profileId,itemId);
   const row=withProfile(profileId,()=>getSqlite().prepare("SELECT * FROM novel_chapters WHERE item_id=? AND id=?").get(itemId,chapterId) as ChapterRow|undefined);
-  if(row)return {id:row.id,title:row.title,text:row.text,digest:row.digest,chunks:splitChunks(row.text),sourceURL:row.source_url||undefined,nextURL:row.next_url||undefined} as Chapter;
+  if(row){
+    const stored=withProfile(profileId,()=>getSqlite().prepare("SELECT comments FROM novel_chapter_comments WHERE chapter_id=?").get(chapterId) as {comments:string}|undefined);
+    return {id:row.id,title:row.title,text:row.text,digest:row.digest,chunks:splitChunks(row.text),sourceURL:row.source_url||undefined,nextURL:row.next_url||undefined,...(stored?{comments:validateComments(JSON.parse(stored.comments))}:{})} as Chapter;
+  }
   const data = await readChapters(profileId, itemId, encoding);
   const chapter = data.chapters.find(c => c.id === chapterId);
   if (!chapter) throw new Error("章节已改变，请重新打开小说"); return chapter;
@@ -141,7 +145,7 @@ export function importUploadedBook(profileId:string,name:string,data:Buffer) {
   if(!existing)fs.writeFileSync(file,data,{flag:"wx"});
   return importLocalBook(profileId,file);
 }
-export interface ImportedChapter { title: string; text: string; sourceURL?: string; nextURL?: string }
+export interface ImportedChapter { title: string; text: string; sourceURL?: string; nextURL?: string; comments?: string[] }
 export function importChapters(profileId: string, sourceKey: string, title: string, inputs: ImportedChapter[], kind = "web") {
   assertProfile(profileId);
   return withProfile(profileId, () => {
@@ -163,9 +167,14 @@ export function importChapters(profileId: string, sourceKey: string, title: stri
       for (const input of inputs) {
         const hash = digest(input.text);
         const found = db.prepare("SELECT id FROM novel_chapters WHERE item_id=? AND (source_url=? OR (? IS NULL AND digest=?))").get(itemId,input.sourceURL || null,input.sourceURL || null,hash) as { id: string } | undefined;
-        if (found) { ids.push(found.id); continue; }
+        if (found) {
+          ids.push(found.id);
+          if(input.comments!==undefined)db.prepare("INSERT OR REPLACE INTO novel_chapter_comments VALUES (?,?)").run(found.id,JSON.stringify(validateComments(input.comments)));
+          continue;
+        }
         const id = randomUUID(); ids.push(id);
         db.prepare("INSERT INTO novel_chapters VALUES (?,?,?,?,?,?,?,?)").run(id,itemId,ordinal++,input.title,input.text,hash,input.sourceURL || null,input.nextURL || null);
+        if(input.comments!==undefined)db.prepare("INSERT INTO novel_chapter_comments VALUES (?,?)").run(id,JSON.stringify(validateComments(input.comments)));
       }
       const rows = db.prepare("SELECT * FROM novel_chapters WHERE item_id=? ORDER BY ordinal").all(itemId) as ChapterRow[];
       for (const row of rows) fs.writeFileSync(path.join(dir,"chapters",`${row.id}.txt`),row.text,"utf8");

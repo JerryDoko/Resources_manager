@@ -2,13 +2,15 @@
  * Resources Manager — Electron 壳
  * 开发：启动 npm next；打包：启动内置 Node + standalone server
  */
-const { app, BrowserWindow, shell, Menu, ipcMain, dialog } = require("electron");
+const { app, BrowserWindow, shell, Menu, ipcMain, dialog, session } = require("electron");
 const { spawn } = require("child_process");
 const http = require("http");
 const path = require("path");
 const fs = require("fs");
 const net = require("net");
 const { mergeLegacyProfileData } = require("./profile-migration.cjs");
+const { startNovelWebBrowser } = require("./novel-web-browser.cjs");
+let stopNovelWebBrowser;
 
 const isPackaged = app.isPackaged;
 const appDataRoot = app.getPath("appData");
@@ -177,13 +179,14 @@ function startDevServer() {
   let cwd = ROOT;
 
   if (MODE === "start") {
-    const standaloneRoot = path.join(ROOT, ".next", "standalone");
+    const buildDir = process.env.RM_NEXT_DIST_DIR || ".next";
+    const standaloneRoot = path.join(ROOT, buildDir, "standalone");
     const standaloneServer = path.join(standaloneRoot, "server.js");
     if (!fs.existsSync(standaloneServer)) {
       throw new Error("找不到 standalone 构建，请先运行 npm run build");
     }
-    const staticSource = path.join(ROOT, ".next", "static");
-    const staticDestination = path.join(standaloneRoot, ".next", "static");
+    const staticSource = path.join(ROOT, buildDir, "static");
+    const staticDestination = path.join(standaloneRoot, buildDir, "static");
     if (fs.existsSync(staticSource)) {
       fs.cpSync(staticSource, staticDestination, { recursive: true, force: true });
     }
@@ -435,6 +438,23 @@ function buildMenu() {
 app.whenReady().then(async () => {
   app.setName("Resources Manager");
   buildMenu();
+  session.defaultSession.on("will-download", (_event, item, contents) => {
+    let download;
+    try {
+      download = new globalThis.URL(item.getURL());
+      if (download.origin !== URL || download.pathname !== "/api/novel" || download.searchParams.get("action") !== "audio-export-download") return;
+    } catch { return; }
+    const id = download.searchParams.get("id"), filename = item.getFilename();
+    const notify = (state) => { if (contents && !contents.isDestroyed()) contents.send("rm:novel-audio-download", { id, state, filename, ...(state === "completed" ? { path: item.getSavePath() } : {}) }); };
+    // Do not report an API error document as a successfully saved audio archive.
+    if (!["audio/wav", "application/zip"].includes(item.getMimeType())) { item.cancel(); notify("interrupted"); return; }
+    item.setSaveDialogOptions({ title: "保存小说语音", defaultPath: path.join(app.getPath("downloads"), path.basename(filename)), buttonLabel: "保存", filters: [{ name: "小说语音", extensions: [filename.endsWith(".zip") ? "zip" : "wav"] }] });
+    notify("started");
+    let finished = false;
+    const finish = (state) => { if (finished) return; finished = true; notify(state); };
+    item.once("done", (_event, state) => finish(state));
+    item.on("updated", (_event, state) => { if (state === "interrupted") { finish("interrupted"); item.cancel(); } });
+  });
 
   try {
     fs.mkdirSync(dataDir(), { recursive: true });
@@ -452,6 +472,7 @@ app.whenReady().then(async () => {
 
   console.log(`[rm] 启动服务 → ${URL} (packaged=${isPackaged})`);
   try {
+    stopNovelWebBrowser = await startNovelWebBrowser();
     startServer();
   } catch (e) {
     console.error(e);
@@ -484,6 +505,7 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   quitting = true;
+  stopNovelWebBrowser?.();
   stopServer();
 });
 

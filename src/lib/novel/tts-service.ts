@@ -9,7 +9,7 @@ import { digest } from "./chunks";
 import { NARRATION_VERSION, prepareSpeech } from "./narration";
 import { getPerformance } from "./performance-settings";
 type Result = { path: string; cached: boolean; duration: number; elapsed: number };
-type Request = { profileId: string; itemId: string; sessionId: string; text: string; voiceId: number; priority: "foreground" | "prefetch" };
+type Request = { profileId: string; itemId: string; sessionId: string; text: string; voiceId: number; priority: "foreground" | "prefetch" | "export" };
 type Job = { key: string; request: Request; subscribers: Map<string, { request: Request; resolve: (r: Result) => void; reject: (e: Error) => void }[]>; priority: number };
 export function kokoroPaths() {
   const root = process.env.RM_KOKORO_ROOT || path.join(process.cwd(), "runtime/kokoro");
@@ -87,8 +87,9 @@ class TtsService {
     if(hit&&fs.existsSync(hit.path)) return Promise.resolve({...hit,cached:true,elapsed:0});
     return new Promise((resolve,reject)=>{
       let job=this.jobs.get(key);
-      if(!job){job={key,request:{...request,text},subscribers:new Map(),priority:request.priority==="foreground"?0:1};this.jobs.set(key,job);this.queue.push(job);}
-      if(request.priority==="foreground")job.priority=0;
+      const priority=request.priority==="foreground"?0:request.priority==="prefetch"?1:2;
+      if(!job){job={key,request:{...request,text},subscribers:new Map(),priority};this.jobs.set(key,job);this.queue.push(job);}
+      job.priority=Math.min(job.priority,priority);
       const subs=job.subscribers.get(request.sessionId)||[];subs.push({request,resolve,reject});job.subscribers.set(request.sessionId,subs);
       void this.pump();
     });

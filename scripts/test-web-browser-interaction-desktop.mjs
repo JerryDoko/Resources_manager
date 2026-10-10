@@ -1,0 +1,201 @@
+import { createRequire } from 'node:module';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+const require = createRequire(import.meta.url);
+const { _electron, expect } = require(process.env.RM_PLAYWRIGHT || '/Users/hsx/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/test');
+const root = process.cwd(), userData = fs.mkdtempSync(path.join(os.tmpdir(), 'rm-browser-interaction-'));
+const executablePath = process.env.RM_TEST_APP || path.join(root, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron');
+const appArgs = process.env.RM_TEST_APP ? [] : ['electron/main.js'];
+const app = await _electron.launch({ executablePath, args: appArgs, env: { ...process.env, ELECTRON_RUN_AS_NODE: '', LM_MODE: 'start', PORT: '31883', RESOURCES_MANAGER_USER_DATA: userData, RM_NEXT_DIST_DIR: '.next-pack' }, timeout: 90000 });
+const url = 'https://www.esjzone.cc/forum/1748671322/379457.html';
+let scenario = 'login', loggedIn = false;
+const chapter = `<title>测试章节</title><div class="breadcrumb"><a href="/detail/fixture.html">测试书籍</a></div><h2>第一章</h2><div class="forum-content"><p>${'这是原创测试正文，只用于验证网页窗口与导入流程。'.repeat(6)}</p></div><aside>内容标签 推荐更新</aside><section id="comments"></section><script>setTimeout(() => document.querySelector('#comments').innerHTML = '<div class="comment-body"><p>测试读者甲：第一条评论。</p><div class="comment-footer">举报回复</div></div><div class="comment-body"><p>测试读者乙：第二条评论。</p></div>', 600)</script>`;
+// Synthetic pages validate user-driven flow without signing in to any real account.
+await app.context().route('https://www.esjzone.cc/**', async route => {
+  const target = new URL(route.request().url());
+  let html;
+  if (target.pathname.startsWith('/detail/') && loggedIn) html = '<div class="book-detail"><h2>测试书籍</h2><p>原创元数据测试页面，只有书籍信息，不包含外部小说正文。</p><img src="https://images.novelpia.com/imagebox/cover/f2a597ae33a03d35086ffb3fdaaa575b_266094_ori.file"/></div><a href="/tags/fixture/">测试标签</a>';
+  else if (scenario === 'missing') html = '<title>未匹配页面</title><p>无正文</p>';
+  else if (scenario === 'bad-title') html = `<div class="forum-content">${'正文足够长，但扩展规则没有匹配标题。'.repeat(6)}</div>`;
+  else if (scenario === 'empty-comments') html = `<title>第二章 无书名测试</title><div class="forum-content"><p>${'这是第二章的原创测试正文，用于确认缺失书名时仍然保存并可以跨章阅读。'.repeat(4)}</p></div>`;
+  else if (scenario === 'no-comments') html = `<div class="forum-detail"><a href="/detail/1748671322.html">测试书籍</a><h2>第三章 无评论规则</h2><div class="forum-content"><p>${'这是没有评论规则的原创测试章节，不应该出现评论按钮。'.repeat(4)}</p></div></div>`;
+  else if (scenario === 'challenge') html = '<title>Just a moment</title><div id="challenge-stage">测试验证页</div>';
+  else if (!loggedIn) html = '<title>會員登入 / 註冊</title><form class="login-box"><button type="button" onclick="document.cookie=\'rm-login-fixture=ok; Max-Age=86400; Path=/\'; location.href=\'/member/home\'">测试登录</button></form>';
+  else if (target.pathname === '/member/home') html = '<title>会员首页</title><p>登录完成，可返回原章节。</p>';
+  else html = chapter;
+  await route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html });
+});
+const errors = [];
+let rememberedProfile;
+try {
+  const page = await app.firstWindow({ timeout: 90000 }); page.on('pageerror', e => errors.push(e.message));
+  await page.waitForLoadState('domcontentloaded');
+  const updateResponse = await page.request.get(new URL('/api/update/check', page.url()).href, { timeout: 20000 });
+  assert.equal((await updateResponse.json()).currentVersion, JSON.parse(fs.readFileSync('package.json', 'utf8')).version);
+  const profile = await page.evaluate(() => fetch('/api/novel?action=context').then(r => r.json()).then(d => d.profileId));
+  rememberedProfile = profile;
+  const call = async (action, rest = {}) => {
+    const response = await page.request.post(new URL('/api/novel', page.url()).href, { data: { profileId: profile, action, ...rest }, timeout: 90000 });
+    return { status: response.status(), data: await response.json() };
+  };
+  const extension = JSON.parse(fs.readFileSync('../novel-web-extensions/adapters/esjzone/manifest.json', 'utf8'));
+  assert.equal((await call('extension-install', { extension, confirmed: true })).status, 200);
+  const popup = async (action = 'web') => {
+    const previous = new Set(app.context().pages());
+    const request = call(action, { url });
+    const find = () => app.context().pages().find(p => !previous.has(p) && !p.isClosed() && p.url().includes('novel-web-toolbar'));
+    await expect.poll(() => !!find(), { timeout: 15000 }).toBe(true);
+    const toolbar = find();
+    toolbar.on('pageerror', e => errors.push(e.message));
+    return { toolbar, request };
+  };
+  const website = () => app.context().pages().find(p => p.url().startsWith('https://www.esjzone.cc/'));
+  const first = await popup();
+  await expect(first.toolbar.getByRole('status')).toContainText('会员登录');
+  await expect.poll(() => !!website()).toBe(true);
+  if (process.env.RM_TEST_SCREENSHOT_PAUSE) await new Promise(resolve => setTimeout(resolve, 30000));
+  loggedIn = true;
+  await website().getByRole('button', { name: '测试登录' }).click();
+  await expect(first.toolbar.locator('#address')).toContainText('/member/home');
+  await first.toolbar.getByRole('button', { name: '返回原章节' }).click();
+  const imported = await first.request; assert.equal(imported.status, 200, JSON.stringify(imported.data));
+  await expect.poll(() => first.toolbar.isClosed()).toBe(true);
+  const book = await call('book', { itemId: imported.data.itemId }); assert.equal(book.data.chapters.length, 1);
+  assert.equal(book.data.storagePath, imported.data.collectionPath);
+  assert.deepEqual(imported.data.tags, ['测试标签']);
+  const seriesResponse = await page.request.get(new URL(`/api/library/${imported.data.seriesId}`, page.url()).href);
+  const series = await seriesResponse.json();
+  assert.equal(fs.existsSync(series.thumbnailPath), true, JSON.stringify(imported.data));
+  assert.ok(series.tags.some(tag => tag.name === '测试标签'));
+  await app.evaluate(async ({session}, id) => {
+    const partition = session.fromPartition(`persist:novel-web-${id}`);
+    await partition.cookies.flushStore();
+  }, profile);
+  const saved = await call('chapter', { itemId: imported.data.itemId, chapterId: book.data.chapters[0].id });
+  assert.equal(saved.data.comments.length, 2); assert.doesNotMatch(saved.data.text, /评论|推荐更新|内容标签/);
+  assert.equal(fs.existsSync(imported.data.collectionPath), true);
+  assert.equal(fs.readFileSync(path.join(path.dirname(imported.data.collectionPath), 'chapters', `${book.data.chapters[0].id}.txt`), 'utf8'), saved.data.text);
+  const output = path.join(root, 'test-results/novel'); fs.mkdirSync(output, { recursive: true });
+  await page.evaluate(detail => window.dispatchEvent(new CustomEvent('rm:open-novel', { detail })), { itemId: imported.data.itemId, title: '测试书籍', chapterId: book.data.chapters[0].id });
+  await expect(page.getByRole('heading', { name: '测试书籍', exact: true })).toBeVisible();
+  await app.evaluate(({shell}) => { shell.showItemInFolder = file => { globalThis.__novelRevealed = file; }; });
+  await page.getByRole('button', { name: '打开小说存储位置', exact: true }).click();
+  assert.equal(await app.evaluate(() => globalThis.__novelRevealed), imported.data.collectionPath);
+  const comments = page.getByRole('complementary', { name: '章节评论列表' });
+  await page.getByRole('button', { name: '章节评论', exact: true }).click();
+  await expect(comments.getByRole('listitem')).toHaveCount(2);
+  await expect(comments).toContainText('测试读者甲：第一条评论。');
+  await expect(comments).not.toContainText('举报回复');
+  await expect(page.locator('article')).not.toContainText('第一条评论');
+  await page.screenshot({ path: path.join(output, 'chapter-comments.png') });
+  await page.setViewportSize({ width: 520, height: 850 });
+  await expect(comments).toBeVisible();
+  assert.ok((await page.getByRole('heading', { name: '测试书籍', exact: true }).boundingBox()).width >= 144);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await expect(page.locator('article')).toBeInViewport();
+  await page.screenshot({ path: path.join(output, 'chapter-comments-narrow.png') });
+  await page.getByRole('button', { name: '关闭评论', exact: true }).click();
+  await expect(comments).toHaveCount(0);
+  await page.getByRole('button', { name: '关闭小说', exact: true }).click();
+  await page.setViewportSize({ width: 1280, height: 840 });
+  scenario = 'empty-comments';
+  await page.getByRole('button', { name: /^小说\s+\d/ }).click();
+  await page.getByRole('button', { name: '导入', exact: true }).click();
+  await page.getByText(`网页扩展 · ${extension.name}`, { exact: true }).click();
+  await page.getByLabel('授权章节链接', { exact: true }).fill(url.replace('379457.html', '379458.html'));
+  const readingResponse = page.waitForResponse(r => r.url().endsWith('/api/novel') && r.request().postData()?.includes('"action":"web"'));
+  await page.getByRole('button', { name: '导入并阅读', exact: true }).click();
+  const secondResponse = await readingResponse;
+  const second = { status: secondResponse.status(), data: await secondResponse.json() };
+  assert.equal(second.status, 200, JSON.stringify(second.data)); assert.equal(second.data.itemId, imported.data.itemId);
+  assert.match(second.data.notice, /正文已保存/);
+  const secondChapter = await call('chapter', { itemId: second.data.itemId, chapterId: second.data.chapterIds[0] });
+  assert.deepEqual(secondChapter.data.comments, []);
+  await expect(page.getByText(/第二章 无书名测试 · 1 \//)).toBeVisible();
+  await page.getByRole('button', { name: '章节评论', exact: true }).click();
+  await expect(comments).toContainText('本章暂无评论');
+  await page.getByRole('button', { name: '关闭小说', exact: true }).click();
+  const noComments = { ...extension, selectors: { ...extension.selectors } }; delete noComments.selectors.comments;
+  assert.equal((await call('extension-install', { extension: noComments, confirmed: true })).status, 200);
+  scenario = 'no-comments';
+  const third = await call('web', { url: url.replace('379457.html', '379459.html') });
+  assert.equal(third.status, 200, JSON.stringify(third.data)); assert.equal(third.data.itemId, imported.data.itemId);
+  await page.evaluate(detail => window.dispatchEvent(new CustomEvent('rm:open-novel', { detail })), { itemId: third.data.itemId, title: third.data.title, chapterId: third.data.chapterIds[0] });
+  await expect(page.getByText(/第三章 无评论规则 · 1 \//)).toBeVisible();
+  await expect(page.getByRole('button', { name: '章节评论', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: '上一章', exact: true }).click();
+  await expect(page.getByText(/第二章 无书名测试 · 1 \//)).toBeVisible();
+  let releaseChapter;
+  const chapterGate = new Promise(resolve => { releaseChapter = resolve; });
+  await page.route('**/api/novel', async route => {
+    const data = route.request().postDataJSON();
+    if (data?.action === 'chapter') await chapterGate;
+    await route.continue();
+  });
+  try {
+    await page.getByRole('button', { name: '下一章', exact: true }).click();
+    const loadingStatus = page.getByRole('status').filter({ hasText: '正在加载下一章' });
+    await expect(loadingStatus).toBeVisible();
+    const nextButton = page.getByRole('button', { name: '下一章', exact: true });
+    await expect(nextButton).toBeDisabled();
+    await expect(nextButton).toHaveAttribute('aria-busy', 'true');
+    await expect(nextButton.locator('.animate-spin')).toBeVisible();
+    await expect(page.getByRole('button', { name: '上一章', exact: true })).toBeDisabled();
+    await page.screenshot({ path: path.join(output, 'chapter-loading.png') });
+    await page.setViewportSize({ width: 520, height: 850 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await expect(loadingStatus).toBeVisible();
+    await page.screenshot({ path: path.join(output, 'chapter-loading-narrow.png') });
+  } finally { releaseChapter(); }
+  await expect(page.getByText(/第三章 无评论规则 · 1 \//)).toBeVisible();
+  await expect(page.getByRole('button', { name: '下一章', exact: true })).toBeEnabled();
+  await expect(page.getByRole('status').filter({ hasText: '正在加载下一章' })).toHaveCount(0);
+  await page.unroute('**/api/novel');
+  await page.setViewportSize({ width: 1280, height: 840 });
+  await page.getByRole('button', { name: '关闭小说', exact: true }).click();
+  const collection = fs.readFileSync(third.data.collectionPath, 'utf8');
+  assert.match(collection, /第二章 无书名测试/); assert.match(collection, /第三章 无评论规则/); assert.doesNotMatch(collection, /第一条评论/);
+  assert.equal((await call('extension-install', { extension: { ...extension, allowMissingTitles: false }, confirmed: true })).status, 200);
+  console.log({ loginPopup: true, userReturnsToChapter: true, autoImport: true, localChapterTXT: true, localCollectionTXT: true, bookMetadata: true, coverSaved: true, revealNovelStorage: true, separateComments: true, narrowCommentsLayout: true, missingTitleSaved: true, emptyCommentToggle: true, noCommentRuleHidden: true, chapterNavigation: true, chapterLoadingFeedback: true });
+
+  scenario = 'missing';
+  const missing = await popup();
+  await expect(missing.toolbar.getByRole('status')).toContainText('尚未匹配到');
+  await missing.toolbar.getByRole('button', { name: '继续读取' }).click();
+  await missing.toolbar.getByRole('button', { name: '取消导入' }).click();
+  assert.match((await missing.request).data.error, /取消/);
+
+  scenario = 'challenge';
+  const challenge = await popup();
+  await expect(challenge.toolbar.getByRole('status')).toContainText('安全验证');
+  await challenge.toolbar.getByRole('button', { name: '取消导入' }).click();
+  assert.match((await challenge.request).data.error, /取消/);
+
+  scenario = 'bad-title';
+  const failed = call('web', { url });
+  const result = await failed; assert.equal(result.status, 400); assert.match(result.data.error, /已打开网页窗口/);
+  await expect.poll(() => app.context().pages().some(p => !p.isClosed() && p.url().includes('novel-web-toolbar'))).toBe(true);
+  const retained = app.context().pages().find(p => !p.isClosed() && p.url().includes('novel-web-toolbar'));
+  await retained.getByRole('button', { name: '完成并关闭' }).click();
+
+  scenario = 'login';
+  const manual = await popup('web-open');
+  assert.equal((await manual.request).status, 200);
+  assert.equal(await manual.toolbar.locator('#continue').evaluate(e => e.hidden), true);
+  await manual.toolbar.getByRole('button', { name: '完成并关闭' }).click();
+  assert.equal(page.isClosed(), false);
+  assert.deepEqual(errors, []);
+  console.log({ missingBodyPopup: true, challengePopup: true, parseFailurePopup: true, explicitOpen: true, cancellation: true, originalWindowIntact: true, errors });
+} finally { await app.close(); }
+const reopened = await _electron.launch({ executablePath, args: appArgs, env: { ...process.env, ELECTRON_RUN_AS_NODE: '', LM_MODE: 'start', PORT: '31883', RESOURCES_MANAGER_USER_DATA: userData, RM_NEXT_DIST_DIR: '.next-pack' }, timeout: 90000 });
+try {
+  await reopened.firstWindow({ timeout: 90000 });
+  const remembered = await reopened.evaluate(async ({session}, id) => ({
+    own: (await session.fromPartition(`persist:novel-web-${id}`).cookies.get({name:'rm-login-fixture'})).some(cookie => cookie.value === 'ok'),
+    other: (await session.fromPartition('persist:novel-web-other-fixture').cookies.get({name:'rm-login-fixture'})).length,
+  }), rememberedProfile);
+  assert.equal(remembered.own, true); assert.equal(remembered.other, 0);
+  console.log({ loginRememberedAfterRestart: true, workspaceLoginIsolation: true });
+} finally { await reopened.close(); }

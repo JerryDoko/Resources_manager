@@ -11,11 +11,13 @@ export default function NovelHelpPage() {
         <p className="mt-4">本页随应用安装，断网时仍能阅读。外部下载和在线文档需要联网。本地 TXT / EPUB 导入与阅读不需要网页扩展、Python 或声音包；PDF 使用原有资源库导入和阅读入口。</p>
       </header>
       <section id="web-extension" className={section}><h2 className="text-lg font-semibold">网页扩展</h2>
-        <ol className="list-decimal space-y-2 pl-5"><li>在「小说 → 导入 → 网页扩展」选择「安装原创示例扩展」，核对访问范围和来源声明后确认。也可以下载 JSON / ZIP 后选择「从文件安装」。</li><li>示例仅适配仓库原创短篇《灯塔来信》，不是通用网站下载器。安装后章节链接自动填入，点击「导入网页」；未缓存的下一章会在阅读或听书时自动接续。</li><li>扩展只在当前工作区生效；安装新扩展会替换当前适配规则，但不删除书籍。移除扩展后已缓存章节仍可离线阅读，未缓存章节不再联网下载。</li></ol>
+        <ol className="list-decimal space-y-2 pl-5"><li>在「小说 → 导入 → 网页扩展」选择「安装原创示例扩展」，核对访问范围和来源声明后确认。也可以下载 JSON / ZIP 后选择「从文件安装」，支持同时选择多个文件。</li><li>示例仅适配仓库原创短篇《灯塔来信》，不是通用网站下载器。安装后章节链接自动填入，点击「导入网页」；未缓存的下一章会在阅读或听书时自动接续。</li><li>点击「管理网站扩展」查看各网站，勾选启用或停用，选择会自动保存并在重启后保留。多个扩展共存，按章节链接自动匹配；安装新规则不会覆盖其他网站，同 ID 更新保留启用状态。停用或移除仅影响对应网站，不删除书籍和进度。</li></ol>
         <div className="flex flex-wrap gap-x-5 gap-y-2"><a className={`${link} inline-flex items-center gap-2`} href="/api/novel/extensions?format=zip" download><Download size={16}/>下载 ZIP（无需外网）</a><a className={link} href="/api/novel/extensions?format=json" download>下载 JSON</a><a className={link} href={EXTENSION_RELEASE_URL} target="_blank" rel="noreferrer">GitHub 下载</a></div>
         <p>已安装的 v1.2.0 只接受 JSON：解压 ZIP，再选择里面的 <code>manifest.json</code>。新版可直接选择 ZIP；ZIP 根目录仅允许 manifest.json、README.md、GUIDE.md、LICENSE，总大小不超过 256 KB，JSON 不超过 32 KB，不执行任何代码。</p>
         <p><a className={link} href={EXAMPLE_CHAPTER_URL} target="_blank" rel="noreferrer">示例第一章</a> · <a className={link} href={EXTENSION_GUIDE_URL} target="_blank" rel="noreferrer">在线扩展协议与站点适配指南</a></p>
         <p>其他站点通过单独的 JSON / ZIP 适配包安装，不限于原创示例。创建扩展时未知来源可选择「未核实来源授权」，如实填写来源情况和章节参考链接，确认后仍可安装；无需声称已经取得许可。MIT 只涵盖扩展代码，不代表第三方作品的许可。来源按完整 HTTPS 域名匹配，并非只限定单条链接；示例只访问 raw.githubusercontent.com。不要添加 Cookie、登录凭证、脚本、验证码或付费绕过。</p>
+        <p>内置浏览器扩展可点击「打开网页」手动查看。导入遇到登录、安全验证或未匹配正文时也会自动弹出网页窗口；自行完成后点击「返回原章节」，正文匹配成功会继续导入。可用「继续读取」检查当前页面，或「取消导入」停止。等待操作最多四分钟，超时保留网页，完成操作后关闭窗口再重试。只有网页正文匹配不代表扩展规则已校验通过。</p>
+        <p>扩展可单独声明评论区域。已导入的评论在阅读器评论面板查看，不混入小说正文、听书、语音导出或阅读进度；导航、侧栏、表单和扩展指定的广告区域不保存。仅保存当前网页已加载的评论，后续评论可通过重新导入该章节更新，不新增重复章节。</p>
       </section>
       <section id="kokoro" className={section}><h2 className="text-lg font-semibold">本地 Kokoro 听书</h2>
         <ol className="list-decimal space-y-2 pl-5"><li>安装 <a className={link} href="https://www.python.org/downloads/" target="_blank" rel="noreferrer">Python 3.11 或以上</a>，重启应用。Mac 通常使用官方安装器，保留安装后的 Python，不要在听书引擎安装后删除它。</li><li>打开「小说导入 → 听书声音包」，点击「下载独立听书引擎」，确认第三方许可。首次从 PyPI 下载引擎需要网络；引擎不是本项目 MIT 授权的一部分。</li><li>点击「下载默认完整版」，或从 <a className={link} href="https://k2-fsa.github.io/sherpa/onnx/tts/all/Chinese-English/kokoro-multi-lang-v1_1.html" target="_blank" rel="noreferrer">官方 Kokoro 下载页</a>下载模型并解压，再选择「声音包目录 → 导入声音包」。</li><li>打开小说，点击「听书」。音色、倍速、音量在朗读设置中调整；首次生成需要加载模型，后续片段会预先准备。</li></ol>
@@ -38,6 +40,7 @@ export default function NovelHelpPage() {
           ["找不到 Python 或引擎安装失败", "安装 Python 3.11+ 后重启应用，确认下载 PyPI 的网络可用，再重试“下载独立听书引擎”。模型目录不包含可替代本机 Python 的引擎。保留失败日志与 Python 版本，勿运行陌生安装脚本。"],
           ["声音包缺少文件 / 校验失败", "确认已完全解压，选择真正包含 model.onnx 和 voices.bin 的目录。不要仅复制单个模型文件，不要选择 Books。下载中断时重新下载完整压缩包，旧声音包不会因校验失败被删除。"],
           ["网页扩展未授权访问此站点", "核对当前工作区、已安装扩展和链接域名。www 与非 www 是不同来源，重定向、目录和下一章的域名都必须列入声明。不要为消除错误随意扩大范围。"],
+          ["没有弹出登录网页", "完整退出并通过 Start Resources Manager.command 重新启动 Electron 桌面应用。单独的网页服务或旧安装包没有新版网页窗口。新版内置浏览器扩展会自动弹出，也可以先点“打开网页”；登录请只在网站页面自行操作，不把密码或 Cookie 填入扩展。"],
           ["未匹配到正文 / 网站返回 403、429 或验证码", "先确认是章节页，不是目录或登录页。站点结构变化需要更新 CSS 选择器；访问被拒绝时停止重试，不绕过验证码、登录、收费或站点限制。可改为导入有权使用的本地文件。"],
           ["扩展 ZIP 无效", "ZIP 根目录应有 manifest.json，不要压成一层文件夹；只允许文档与声明文件，不允许代码、子目录或链接。v1.2.0 请先解压再安装 JSON。"],
           ["迁入时要求 catalog.json", "这个入口只迁入旧听页 Books 书库。声音模型去“听书声音包”导入，本地 TXT / EPUB 去“本地文件”导入。"],

@@ -1,3 +1,4 @@
+import type {NovelAudioDownload} from "../lib/novel/export-notices";
 export {};
 
 declare global {
@@ -12,6 +13,7 @@ declare global {
       chooseFolder?: (prompt?: string) => Promise<string | null>;
       chooseNovel?: () => Promise<string | null>;
       revealItem?: (targetPath: string) => Promise<boolean>;
+      onNovelAudioDownload?: (callback: (download: NovelAudioDownload) => void) => () => void;
       onFullscreenChange?: (callback: (fullscreen: boolean) => void) => () => void;
     };
   }

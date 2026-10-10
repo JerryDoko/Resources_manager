@@ -3,6 +3,7 @@ import { LibraryProvider } from "@/lib/store";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { UpdateNotifier } from "@/components/update/UpdateNotifier";
 import { AiConfirmationPrompt } from "@/components/ai/AiConfirmationPrompt";
+import { NovelExportNotifier } from "@/components/NovelExportNotifier";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -24,6 +25,7 @@ export default function RootLayout({
           <SettingsPanel />
           <AiConfirmationPrompt />
           <UpdateNotifier />
+          <NovelExportNotifier />
         </LibraryProvider>
       </body>
     </html>

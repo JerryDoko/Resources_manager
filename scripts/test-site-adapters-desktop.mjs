@@ -1,0 +1,132 @@
+import { createRequire } from 'node:module';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+const require = createRequire(import.meta.url);
+const { _electron, expect } = require(process.env.RM_PLAYWRIGHT || '/Users/hsx/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/test');
+const root = process.cwd(), userData = fs.mkdtempSync(path.join(os.tmpdir(), 'rm-site-adapters-'));
+const launch = () => _electron.launch({ executablePath: path.join(root, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'), args: ['electron/main.js'], env: { ...process.env, ELECTRON_RUN_AS_NODE: '', LM_MODE: 'start', PORT: '31879', RESOURCES_MANAGER_USER_DATA: userData, RM_NEXT_DIST_DIR: '.next-pack' }, timeout: 90000 });
+let app = await launch();
+const errors = [], logs = [];
+app.process().stdout?.on('data', d => logs.push(d.toString())); app.process().stderr?.on('data', d => logs.push(d.toString()));
+try {
+  const page = await app.firstWindow({ timeout: 90000 }); page.on('pageerror', e => errors.push(e.message));
+  await page.waitForLoadState('domcontentloaded');
+  const profile = await page.evaluate(() => fetch('/api/novel?action=context').then(r => r.json()).then(d => d.profileId));
+  const bridgeChecks = await app.evaluate(async (_electron, profileId) => {
+    const endpoint = process.env.RM_NOVEL_BROWSER_URL, token = process.env.RM_NOVEL_BROWSER_TOKEN;
+    const call = (authorization, url) => fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: authorization }, body: JSON.stringify({ profileId, url, origins: ['https://ixdzs8.com'], content: 'article.page-content > section' }) }).then(async r => ({ status: r.status, data: await r.json() }));
+    return { tokenDenied: (await call('Bearer invalid', 'https://ixdzs8.com/read/1/')).status, privateDenied: (await call(`Bearer ${token}`, 'https://127.0.0.1/read/1/')).status, otherDenied: (await call(`Bearer ${token}`, 'https://example.org/')).status };
+  }, profile);
+  assert.deepEqual(bridgeChecks, { tokenDenied: 403, privateDenied: 400, otherDenied: 400 });
+  await page.getByRole('button', { name: /^小说\s+\d/ }).click(); await page.getByRole('button', { name: '导入', exact: true }).click();
+  await page.getByText('网页扩展 · 未安装', { exact: true }).click();
+  page.once('dialog', d => { assert.match(d.message(), /隔离的内置浏览器/); d.accept(); });
+  await page.getByLabel('网页扩展 JSON', { exact: true }).setInputFiles(path.resolve('../novel-web-extensions/dist/ixdzs8-1.0.0.zip'));
+  await expect(page.getByText('网页扩展 · 爱下电子书 · 内置浏览器读取', { exact: true })).toBeVisible();
+  fs.mkdirSync('test-results/novel', { recursive: true });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.getByText('网页扩展 · 爱下电子书 · 内置浏览器读取', { exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/novel/site-adapter-installed.png' });
+  await page.setViewportSize({ width: 600, height: 850 });
+  assert.equal(await page.locator('body').evaluate(e => e.scrollWidth <= innerWidth + 1), true);
+  await page.screenshot({ path: 'test-results/novel/site-adapter-narrow.png' });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const accept = d => d.accept();
+  page.on('dialog', accept);
+  await page.getByLabel('网页扩展 JSON', { exact: true }).setInputFiles([path.resolve('../novel-web-extensions/dist/69shuba-1.0.0.zip'), path.resolve('../novel-web-extensions/dist/wcshuba-1.0.0.zip')]);
+  await expect(page.getByText('网页扩展 · 3 / 3 已启用', { exact: true })).toBeVisible();
+  page.removeListener('dialog', accept);
+  for (const [link, name] of [['https://www.69shuba.com/txt/20503/20314166', '69书吧 · 内置浏览器读取'], ['https://wcshuba.com/read/3009/1797458.html', '无错书吧 · 网页适配'], ['https://ixdzs8.com/read/132445/p4077.html', '爱下电子书 · 内置浏览器读取']]) {
+    await page.getByLabel('授权章节链接', { exact: true }).fill(link);
+    await expect(page.getByText(`匹配扩展：${name}`, { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: '导入网页', exact: true })).toBeEnabled();
+  }
+  const waiting = app.waitForEvent('window');
+  await page.getByRole('link', { name: '管理网站扩展', exact: true }).click();
+  const manager = await waiting; manager.on('pageerror', e => errors.push(e.message));
+  await expect(manager.getByRole('heading', { name: '网站扩展管理', exact: true })).toBeVisible();
+  const wc = manager.getByRole('checkbox', { name: '启用 无错书吧 · 网页适配', exact: true });
+  await wc.uncheck(); await expect(manager.getByRole('status')).toContainText('已停用');
+  const registry = path.join(userData, 'data/profiles', profile, 'web-novel-extensions.json');
+  const saved = fs.readFileSync(registry, 'utf8'), stamp = fs.statSync(registry).mtimeMs;
+  await manager.reload(); await expect(wc).not.toBeChecked();
+  assert.equal(fs.readFileSync(registry, 'utf8'), saved); assert.equal(fs.statSync(registry).mtimeMs, stamp);
+  manager.once('dialog', d => d.accept());
+  await manager.getByLabel('网页扩展 JSON', { exact: true }).setInputFiles(path.resolve('../novel-web-extensions/dist/wcshuba-1.0.0.zip'));
+  await expect(manager.getByRole('status')).toContainText('已保存'); await expect(wc).not.toBeChecked();
+  await expect(manager.getByRole('checkbox', { name: '启用 爱下电子书 · 内置浏览器读取', exact: true })).toBeChecked();
+  await manager.setViewportSize({ width: 1100, height: 850 }); await manager.screenshot({ path: 'test-results/novel/multi-site-manager.png' });
+  await manager.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await manager.locator('body').evaluate(e => e.scrollWidth <= innerWidth + 1), true);
+  await manager.screenshot({ path: 'test-results/novel/multi-site-manager-mobile.png' });
+  const originalURL = page.url();
+  await manager.getByRole('button', { name: '完成并关闭', exact: true }).click();
+  await expect.poll(() => manager.isClosed()).toBe(true);
+  assert.equal(page.isClosed(), false); assert.equal(page.url(), originalURL);
+  assert.equal(app.windows().length, 1);
+  await page.bringToFront();
+  await expect(page.getByRole('checkbox', { name: '启用 无错书吧 · 网页适配', exact: true })).not.toBeChecked();
+  await page.getByLabel('授权章节链接', { exact: true }).fill('https://wcshuba.com/read/3009/1797458.html');
+  await expect(page.getByRole('button', { name: '导入网页', exact: true })).toBeDisabled();
+  await page.getByRole('checkbox', { name: '启用 无错书吧 · 网页适配', exact: true }).check();
+  await expect(page.getByRole('button', { name: '导入网页', exact: true })).toBeEnabled();
+  if (process.env.RM_TEST_SITE_LIVE === '1') {
+    await page.getByLabel('授权章节链接', { exact: true }).fill('https://ixdzs8.com/read/132445/p4077.html');
+    const pending = page.waitForResponse(r => r.url().endsWith('/api/novel') && r.request().postData()?.includes('"action":"web"'), { timeout: 70000 });
+    await page.getByRole('button', { name: '导入网页', exact: true }).click();
+    const response = await pending, body = await response.json(); assert.equal(response.status(), 200, JSON.stringify(body));
+    const result = await page.evaluate(async itemId => {
+      const { profileId } = await fetch('/api/novel?action=context').then(r => r.json());
+      const call = async (action, rest = {}) => { const r = await fetch('/api/novel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profileId, itemId, action, ...rest }) }); const data = await r.json(); if (!r.ok) throw new Error(data.error); return data; };
+      const book = await call('book'), session = await call('begin');
+      const next = await call('next', { sessionId: session.id, chapterId: book.chapters[0].id });
+      const nextAgain = await call('next', { sessionId: session.id, chapterId: book.chapters[0].id });
+      const all = await call('book'); await call('cancel', { sessionId: session.id });
+      return { title: all.title, chapters: all.chapters.length, next: next.title, duplicate: next.id === nextAgain.id };
+    }, body.itemId);
+    assert.equal(result.chapters, 2); assert.equal(result.duplicate, true); console.log({ live: true, ...result });
+  }
+  if (process.env.RM_TEST_69_LIVE === '1') {
+    const failures = []; let challengeWindow;
+    const watch = p => { challengeWindow = p; p.on('requestfailed', r => { if (r.url().startsWith('https://challenges.cloudflare.com/')) failures.push(r.failure()?.errorText); }); };
+    app.on('window', watch);
+    await page.getByLabel('授权章节链接', { exact: true }).fill('https://www.69shuba.com/txt/20503/20314166');
+    const pending = page.waitForResponse(r => r.url().endsWith('/api/novel') && r.request().postData()?.includes('"action":"web"'), { timeout: 70000 });
+    await page.getByRole('button', { name: '导入网页', exact: true }).click();
+    await expect.poll(() => challengeWindow?.url(), { timeout: 15000 }).toContain('69shuba.com');
+    await challengeWindow.screenshot({ path: 'test-results/novel/69shuba-browser-state.png' });
+    const response = await pending, result = await response.json();
+    assert.equal(response.status(), 200, JSON.stringify(result));
+    const continuation = await page.evaluate(async itemId => {
+      const { profileId } = await fetch('/api/novel?action=context').then(r => r.json());
+      const call = async (action, rest = {}) => { const r = await fetch('/api/novel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profileId, itemId, action, ...rest }) }); const data = await r.json(); if (!r.ok) throw new Error(data.error); return data; };
+      const book = await call('book'), session = await call('begin');
+      const next = await call('next', { sessionId: session.id, chapterId: book.chapters[0].id });
+      const repeated = await call('next', { sessionId: session.id, chapterId: book.chapters[0].id });
+      const all = await call('book'); await call('cancel', { sessionId: session.id });
+      return { title: all.title, first: book.chapters[0].title, next: next.title, chapters: all.chapters.length, duplicate: repeated.id === next.id };
+    }, result.itemId);
+    assert.equal(continuation.chapters, 2); assert.equal(continuation.duplicate, true);
+    assert.ok(!failures.includes('net::ERR_BLOCKED_BY_CLIENT'), JSON.stringify(failures));
+    console.log({ shuba69: { status: response.status(), ...continuation, cloudflareBlockedByApp: false } });
+    app.removeListener('window', watch);
+  }
+  await page.getByRole('checkbox', { name: '启用 无错书吧 · 网页适配', exact: true }).uncheck();
+  await expect(page.getByRole('status')).toContainText('已停用');
+  await app.close(); app = await launch();
+  const restarted = await app.firstWindow({ timeout: 90000 });
+  restarted.on('pageerror', e => errors.push(e.message));
+  await restarted.goto(new URL('/novel-extensions', restarted.url()).href);
+  await expect(restarted.getByRole('checkbox', { name: '启用 无错书吧 · 网页适配', exact: true })).not.toBeChecked();
+  await expect(restarted.getByRole('checkbox', { name: '启用 爱下电子书 · 内置浏览器读取', exact: true })).toBeChecked();
+  await expect(restarted.getByRole('checkbox', { name: '启用 69书吧 · 内置浏览器读取', exact: true })).toBeChecked();
+  restarted.once('dialog', d => d.accept());
+  await restarted.getByRole('button', { name: '移除 69书吧 · 内置浏览器读取', exact: true }).click();
+  await expect(restarted.getByRole('checkbox', { name: '启用 69书吧 · 内置浏览器读取', exact: true })).toHaveCount(0);
+  await expect(restarted.getByRole('checkbox', { name: '启用 爱下电子书 · 内置浏览器读取', exact: true })).toBeChecked();
+  assert.deepEqual(errors, []); console.log({ installZip: true, bulkInstall: true, automaticMatching: true, preserveDisabledOnUpdate: true, restartPreserves: true, managerNarrow: true, closeManagerPreservesLibrary: true, isolatedRemoval: true, bridgeChecks, errors });
+} finally {
+  await app.close(); fs.mkdirSync('test-results/novel', { recursive: true }); fs.writeFileSync('test-results/novel/site-adapters-desktop.log', logs.join(''));
+}

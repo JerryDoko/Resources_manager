@@ -37,6 +37,7 @@ import { VideoPlayer } from "@/components/viewers/VideoPlayer";
 import { openNovel } from "@/lib/novel/open-reader";
 import { NovelChapterList } from "./NovelChapterList";
 import { VideoItemThumbnail } from "@/components/VideoItemThumbnail";
+import { revealLocalFile } from "@/lib/reveal-file";
 
 function dirname(filePath: string) {
   const i = filePath.lastIndexOf("/");
@@ -196,6 +197,7 @@ export function SeriesDetailView({
   const [autoImportMessage, setAutoImportMessage] = useState<string | null>(null);
   const [focusedItemId, setFocusedItemId] = useState<string | null>(null);
   const [itemThumbFailed, setItemThumbFailed] = useState(false);
+  const [revealError,setRevealError]=useState("");
   const [drag, setDrag] = useState<DragBox | null>(null);
   const [aiTagging, setAiTagging] = useState(false);
   const [aiTagMessage, setAiTagMessage] = useState<string | null>(null);
@@ -433,16 +435,8 @@ export function SeriesDetailView({
   }, []);
 
   const revealItemPath = useCallback(async (itemPath: string) => {
-    if (window.rmDesktop?.revealItem) {
-      await window.rmDesktop.revealItem(itemPath);
-      return;
-    }
-    await fetch("/api/system/reveal", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: itemPath }),
-      signal: AbortSignal.timeout(10000),
-    });
+    setRevealError("");
+    try{await revealLocalFile(itemPath);}catch(e){setRevealError(e instanceof Error?e.message:"无法打开存储位置");}
   }, []);
 
   const setItemRating = async (itemId: string, rating: number) => {
@@ -1079,8 +1073,13 @@ export function SeriesDetailView({
                         )}
                       </dl>
                     </div>
+                    {data.mediaType==="novel"&&data.items.length>0&&<div className="flex gap-2">
+                      <button type="button" onClick={()=>openItem(data.items[0])} className="min-w-0 flex-1 rounded-lg bg-[var(--accent)] px-3 py-2.5 text-sm font-medium text-white">打开阅读</button>
+                      <button type="button" onClick={()=>void revealItemPath(data.items[0].path)} title="打开小说存储位置" aria-label="打开小说存储位置" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[var(--line)] bg-white text-[var(--ink-muted)] hover:text-[var(--accent)]"><FolderOpen className="h-4 w-4"/></button>
+                    </div>}
                   </>
                 )}
+                {revealError&&<p role="alert" className="text-xs text-red-600">{revealError}</p>}
                 {isImageSequence && (
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between text-xs text-[var(--ink-muted)]">

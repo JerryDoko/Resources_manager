@@ -6,10 +6,12 @@ import { novelFetch } from "@/lib/novel/client";
 
 type Props = { profile: string; button: string; run: (fn: () => Promise<void>) => Promise<void>; install: (value: WebExtension) => Promise<void> };
 export function NovelExtensionEditor({ profile, button, run, install }: Props) {
-  const [fields, setFields] = useState({ id: "my-web-stories", name: "", origins: "", content: "article", title: "h1", bookTitle: "meta[name='book-title']", bookLink: "a[rel='index']", next: "a[rel='next']", statement: "", reference: "" });
+  const [fields, setFields] = useState({ id: "my-web-stories", name: "", origins: "", content: "article", title: "h1", bookTitle: "meta[name='book-title']", bookLink: "a[rel='index']", next: "a[rel='next']", exclude: "", comments: "", statement: "", reference: "" });
   const [basis, setBasis] = useState<WebExtension["authorization"]["basis"]>("unverified");
+  const [transport, setTransport] = useState<"http" | "browser">("http");
+  const [allowMissingTitles, setAllowMissingTitles] = useState(false);
   const validate = async () => {
-    const value = { format: "resources-manager.web-novel.v1", id: fields.id.trim(), name: fields.name.trim(), version: "1.0.0", license: "MIT", authorization: { basis, statement: fields.statement.trim(), reference: fields.reference.trim() }, origins: fields.origins.split(/\s+/).filter(Boolean), selectors: { content: fields.content, title: fields.title, bookTitle: fields.bookTitle, ...(fields.bookLink.trim() ? { bookLink: fields.bookLink } : {}), ...(fields.next.trim() ? { next: fields.next } : {}) } };
+    const value = { format: "resources-manager.web-novel.v1", id: fields.id.trim(), name: fields.name.trim(), version: "1.0.0", license: "MIT", ...(transport === "browser" ? { transport } : {}), ...(allowMissingTitles ? { allowMissingTitles: true } : {}), authorization: { basis, statement: fields.statement.trim(), reference: fields.reference.trim() }, origins: fields.origins.split(/\s+/).filter(Boolean), selectors: { content: fields.content, title: fields.title, bookTitle: fields.bookTitle, ...(fields.bookLink.trim() ? { bookLink: fields.bookLink } : {}), ...(fields.next.trim() ? { next: fields.next } : {}), ...(fields.exclude.trim() ? { exclude: fields.exclude } : {}), ...(fields.comments.trim() ? { comments: fields.comments } : {}) } };
     const form = new FormData(); form.set("profileId", profile); form.set("file", new File([JSON.stringify(value)], "manifest.json", { type: "application/json" }));
     const response = await novelFetch(`/api/novel/extensions?profileId=${encodeURIComponent(profile)}`, { method: "POST", body: form });
     const data = await response.json(); if (!response.ok) throw new Error(data.error || "扩展声明无效"); return data as WebExtension;
@@ -23,9 +25,13 @@ export function NovelExtensionEditor({ profile, button, run, install }: Props) {
         ["content", "正文 CSS", "article"], ["title", "章节标题 CSS", "h1"],
         ["bookTitle", "书名 CSS", "meta[name='book-title']"], ["bookLink", "目录链接 CSS（可选）", "a[rel='index']"],
         ["next", "下一章 CSS（可选）", "a[rel='next']"], ["reference", "来源说明 HTTPS 链接", "https://your-site.example/chapter"],
+        ["exclude", "正文排除 CSS（可选）", ".ad, .info, h1"],
+        ["comments", "评论 CSS（可选）", "#comments .comment-body"],
       ] as const).map(([key, label, placeholder]) => <label key={key} className="min-w-0 text-xs">{label}<input aria-label={label} value={fields[key]} placeholder={placeholder} className={input} onChange={e => setFields(f => ({ ...f, [key]: e.target.value }))}/></label>)}</div>
       <label className="block text-xs">允许的 HTTPS 来源（每行一个）<textarea aria-label="允许的 HTTPS 来源" className={input} rows={2} value={fields.origins} placeholder="https://your-site.example" onChange={e => setFields(f => ({ ...f, origins: e.target.value }))}/></label>
       <label className="block text-xs">来源状态<select aria-label="来源状态" className={input} value={basis} onChange={e => setBasis(e.target.value as typeof basis)}><option value="unverified">未核实来源授权</option><option value="own-content">原创内容</option><option value="permission">已取得许可</option><option value="public-domain">公版内容</option></select></label>
+      <label className="block text-xs">网页读取方式<select aria-label="网页读取方式" className={input} value={transport} onChange={e => setTransport(e.target.value as typeof transport)}><option value="http">直接读取</option><option value="browser">内置浏览器（爱下电子书 / 69书吧）</option></select></label>
+      <label className="flex items-center gap-2 text-xs"><input type="checkbox" className="h-4 w-4 accent-[var(--accent)]" checked={allowMissingTitles} onChange={e=>setAllowMissingTitles(e.target.checked)}/>缺失标题时仍保存正文</label>
       <label className="block text-xs">来源说明<textarea aria-label="来源说明" rows={3} className={input} value={fields.statement} placeholder="如实填写内容来源和已知情况（至少 20 字）" onChange={e => setFields(f => ({ ...f, statement: e.target.value }))}/></label>
       <div className="flex flex-wrap gap-2"><button className={button} onClick={() => void run(async () => install(await validate()))}><PackagePlus size={16}/>校验并安装</button>
         <button className={button} onClick={() => void run(async () => {

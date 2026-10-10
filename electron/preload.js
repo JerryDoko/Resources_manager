@@ -10,6 +10,11 @@ contextBridge.exposeInMainWorld("rmDesktop", {
   chooseFolder: (prompt) => ipcRenderer.invoke("rm:choose-folder", prompt),
   chooseNovel: () => ipcRenderer.invoke("rm:choose-novel"),
   revealItem: (targetPath) => ipcRenderer.invoke("rm:reveal-item", targetPath),
+  onNovelAudioDownload: (callback) => {
+    const listener = (_event, download) => callback(download);
+    ipcRenderer.on("rm:novel-audio-download", listener);
+    return () => ipcRenderer.removeListener("rm:novel-audio-download", listener);
+  },
   onFullscreenChange: (callback) => {
     const listener = (_event, value) => callback(!!value);
     ipcRenderer.on("rm:fullscreen-changed", listener);

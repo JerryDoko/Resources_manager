@@ -719,6 +719,7 @@ export function exportBackup() {
     mediaItems: db.select().from(schema.mediaItems).all(),
     novelSources: db.select().from(schema.novelSources).all(),
     novelChapters: db.select().from(schema.novelChapters).all(),
+    novelChapterComments: db.select().from(schema.novelChapterComments).all(),
     novelReadingState: db.select().from(schema.novelReadingState).all(),
     novelChapterProgress: db.select().from(schema.novelChapterProgress).all(),
     tags: db.select().from(schema.tags).all(),
@@ -791,6 +792,8 @@ export function importBackup(data: ReturnType<typeof exportBackup>) {
     for(const row of data.novelSources || []) source.run(row);
     const chapter = sqlite.prepare("INSERT INTO novel_chapters VALUES (@id,@itemId,@ordinal,@title,@text,@digest,@sourceUrl,@nextUrl)");
     for(const row of data.novelChapters || []) chapter.run(row);
+    const comments = sqlite.prepare("INSERT INTO novel_chapter_comments VALUES (@chapterId,@comments)");
+    for(const row of data.novelChapterComments || []) comments.run(row);
     const state = sqlite.prepare("INSERT INTO novel_reading_state VALUES (@itemId,@chapterId,@chunkId,@offset,@digest,@seconds,@chunkVersion,@updatedAt)");
     for(const row of data.novelReadingState || []) state.run(row);
     const chapterProgress=sqlite.prepare("INSERT INTO novel_chapter_progress VALUES (@itemId,@chapterId,@digest,@progress,@offset,@seconds,@updatedAt)");

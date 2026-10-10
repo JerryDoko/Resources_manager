@@ -1,6 +1,6 @@
 {
   "name": "resources-manager",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "private": true,
   "license": "MIT",
   "description": "本地一体化资源管理器 — 漫画、条漫、小说、视频与照片，私有、离线、自动整理",

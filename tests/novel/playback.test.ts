@@ -48,3 +48,75 @@ test("整章装饰自动跳过并在最后一章结束，ended 不重复推进",
     audios.at(-1)!.onended!();await tick();await tick();assert.equal(p.state.playing,false);assert.equal(p.state.status,"已读完");assert.ok(requests.some(r=>r.action==="progress"&&r.payload.completed));
   }finally{p.close();}
 });
+test("显式章节优先于旧续听位置，直接从新章开头读取",async()=>{
+  const {p,requests}=setup(),original=p.request;
+  p.request=async<T>(action:string,payload?:Record<string,unknown>)=>{const result=await original<T>(action,payload);if(action==="book")return {...result as object,position:{chapterId:"txt-0",chunkId:"old",digest:"old",seconds:8}} as T;return result;};
+  try{await p.load("auto","txt-1");assert.equal(p.state.chapter?.id,"txt-1");assert.equal(p.state.index,0);assert.equal(p.state.seconds,0);assert.ok(p.state.locationVersion>0);assert.equal((requests.find(r=>r.action==="reading-progress")!.payload.position as {chapterId:string}).chapterId,"txt-1");}finally{p.close();}
+});
+test("普通阅读保存原文锚点且不抢占朗读会话，切章请求重新定位",async()=>{
+  const {p,requests}=setup();try{await p.load();const version=p.state.locationVersion;p.readAt(2);await p.positionWrites;assert.equal(p.state.index,2);assert.equal(p.state.locationVersion,version);assert.equal(requests.filter(r=>r.action==="begin").length,0);assert.equal((requests.find(r=>r.action==="reading-progress")!.payload.position as {seconds:number}).seconds,0);await p.seek("txt-1",0,false);assert.equal(p.state.locationVersion,version+1);assert.equal((requests.filter(r=>r.action==="reading-progress").at(-1)!.payload.position as {chapterId:string}).chapterId,"txt-1");}finally{p.close();}
+});
+test("慢进度请求按序完成后才保存新章节，不能反写旧位置",async()=>{
+  const {p}=setup(),original=p.request,blocked=deferred<void>(),writes:string[]=[];
+  p.request=async(action,payload={})=>{if(action==="reading-progress"){const position=payload.position as {chapterId:string};if(!writes.length)await blocked.promise;writes.push(position.chapterId);}return original(action,payload);};
+  try{await p.load();p.readAt(1);const seek=p.seek("txt-1",0,false);await tick();assert.deepEqual(writes,[]);blocked.resolve();await seek;assert.deepEqual(writes,["txt-0","txt-1"]);}finally{p.close();}
+});
+test("手动切章立即显示加载状态，重复点击不重复读取",async()=>{
+  const {p,requests}=setup(),original=p.request,blocked=deferred<void>();
+  try{
+    await p.load();
+    p.request=async(action,payload)=>{if(action==="chapter")await blocked.promise;return original(action,payload);};
+    const task=p.changeChapter(1);
+    assert.equal(p.state.chapterLoading,"next");
+    await p.changeChapter(1);await p.changeChapter(-1);await tick();
+    assert.equal(p.state.chapter?.id,"txt-0");
+    blocked.resolve();await task;
+    assert.equal(p.state.chapterLoading,null);assert.equal(p.state.chapter?.id,"txt-1");
+    assert.equal(requests.filter(r=>r.action==="chapter").length,2);
+    await p.changeChapter(-1);assert.equal(p.state.chapter?.id,"txt-0");
+    await p.changeChapter(-1);assert.equal(p.state.notice,"已经是第一章");
+  }finally{blocked.resolve();p.close();}
+});
+test("下载下一章期间保持加载提示，成功后更新目录且保留上一章",async()=>{
+  const {p}=setup(),original=p.request,blocked=deferred<void>();let nextRequests=0;
+  try{
+    await p.load();p.set({book:{...p.state.book!,chapters:p.state.book!.chapters.slice(0,1)}});
+    p.request=async(action,payload)=>{if(action==="next"){nextRequests++;await blocked.promise;}return original(action,payload);};
+    const task=p.changeChapter(1);await tick();
+    assert.equal(p.state.chapterLoading,"next");await p.changeChapter(1);assert.equal(nextRequests,1);
+    blocked.resolve();await task;
+    assert.equal(p.state.chapterLoading,null);assert.equal(p.state.chapter?.id,"txt-1");assert.equal(p.state.book?.chapters.length,2);
+    await p.changeChapter(-1);assert.equal(p.state.chapter?.id,"txt-0");
+    await p.changeChapter(1);await p.changeChapter(1);
+    assert.equal(p.state.chapterLoading,null);assert.equal(p.state.notice,"没有可加载的下一章");assert.equal(p.session,"");
+  }finally{blocked.resolve();p.close();}
+});
+test("下一章失败解除加载锁并可重试",async()=>{
+  const {p}=setup(),original=p.request;
+  try{
+    await p.load();p.set({book:{...p.state.book!,chapters:p.state.book!.chapters.slice(0,1)}});
+    p.request=async(action,payload)=>{if(action==="next")throw new Error("测试网络失败");return original(action,payload);};
+    await p.changeChapter(1);
+    assert.equal(p.state.chapterLoading,null);assert.equal(p.state.error,"测试网络失败");assert.equal(p.state.chapter?.id,"txt-0");
+    p.request=original;await p.changeChapter(1);assert.equal(p.state.error,"");assert.equal(p.state.chapter?.id,"txt-1");
+  }finally{p.close();}
+});
+test("关闭阅读器后迟到的下一章不能更新正文",async()=>{
+  const {p}=setup(),original=p.request,blocked=deferred<void>();
+  try{
+    await p.load();p.set({book:{...p.state.book!,chapters:p.state.book!.chapters.slice(0,1)}});
+    p.request=async(action,payload)=>{if(action==="next")await blocked.promise;return original(action,payload);};
+    const task=p.changeChapter(1);await tick();p.close();blocked.resolve();await task;
+    assert.equal(p.state.chapterLoading,null);assert.equal(p.state.chapter?.id,"txt-0");assert.equal(p.state.book?.chapters.length,1);
+  }finally{blocked.resolve();p.close();}
+});
+test("听书切章继续播放，末章提示不会中断当前朗读",async()=>{
+  const {p,audios}=setup();
+  try{
+    await p.load();await p.play();await p.changeChapter(1);
+    assert.equal(p.state.chapter?.id,"txt-1");assert.equal(p.state.playing,true);assert.equal(p.state.chapterLoading,null);
+    audios.at(-1)!.currentTime=2;
+    await p.changeChapter(1);
+    assert.equal(p.state.notice,"没有可加载的下一章");assert.equal(p.state.playing,true);assert.equal(audios.at(-1)!.currentTime,2);
+  }finally{p.close();}
+});

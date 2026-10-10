@@ -192,3 +192,9 @@ body {
   border-radius: 999px;
   background: transparent;
 }
+
+@media (max-width: 640px) {
+  body:has([data-novel-audio-export]) [data-novel-export-notices] {
+    display: none;
+  }
+}
