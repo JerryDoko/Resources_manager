@@ -21,7 +21,7 @@ interface Folder {
 }
 
 export function ImportView() {
-  const { mediaType, refresh } = useLibrary();
+  const { mediaType, refresh, refreshTags } = useLibrary();
   const [folders, setFolders] = useState<Folder[]>([]);
   const [path, setPath] = useState("");
   const [scanningId, setScanningId] = useState<string | null>(null);
@@ -150,6 +150,7 @@ export function ImportView() {
       setShowAdd(false);
       await load();
       await refresh();
+      await refreshTags();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "添加失败");
     } finally {
@@ -184,6 +185,7 @@ export function ImportView() {
         `「${folder.path}」扫描完成：新增 ${data.scan?.added ?? 0} · 更新 ${data.scan?.updated ?? 0}`
       );
       await refresh();
+      await refreshTags();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "扫描失败");
     } finally {

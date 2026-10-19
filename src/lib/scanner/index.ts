@@ -6,6 +6,8 @@ import { getDb, schema } from "@/lib/db";
 import { MEDIA_EXTENSIONS, type MediaType, type ScanResult } from "@/lib/types";
 import { inferSeriesTitle, naturalCompare, parseMediaName } from "@/lib/parsers/name";
 import { ensureItemThumbnail, ensureSeriesThumbnail } from "@/lib/thumbnails";
+import { createHikariSourceReader } from "./hikari-source";
+import { importHikariSources } from "./hikari-import";
 
 const IMAGE_EXTS = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".heic", ".heif", ".bmp", ".tiff"]);
 const ARCHIVE_EXTS = new Set([".zip", ".cbz", ".rar", ".cbr"]);
@@ -156,6 +158,7 @@ export async function scanFolder(
 
   const db = getDb();
   const now = Date.now();
+  const readHikari = createHikariSourceReader();
   const allFiles = walkDir(folderPath, recursive ? 32 : 0);
   const matched = allFiles.filter((f) => matchMediaType(f, mediaType) === mediaType);
   result.scanned = matched.length;
@@ -177,7 +180,8 @@ export async function scanFolder(
           now,
           result,
           folderPath,
-          false
+          false,
+          readHikari
         );
         if (seriesId) touchedSeries.add(seriesId);
       } catch (e) {
@@ -219,6 +223,8 @@ export async function scanFolder(
             .get();
 
           if (existing) {
+            importHikariSources(db, existing.id, readHikari(img), now);
+            touchedSeries.add(existing.seriesId);
             result.updated++;
             continue;
           }
@@ -243,6 +249,7 @@ export async function scanFolder(
               updatedAt: now,
             })
             .run();
+          importHikariSources(db, itemId, readHikari(img), now);
           result.added++;
         }
       } catch (e) {
@@ -294,6 +301,8 @@ export async function scanFolder(
             .get();
 
           if (existing) {
+            importHikariSources(db, existing.id, readHikari(filePath), now);
+            touchedSeries.add(existing.seriesId);
             result.updated++;
             // A user's logical grouping takes precedence over the disk folder.
             continue;
@@ -317,6 +326,7 @@ export async function scanFolder(
               updatedAt: now,
             })
             .run();
+          importHikariSources(db, itemId, readHikari(filePath), now);
           result.added++;
         }
       } catch (e) {
@@ -333,7 +343,8 @@ export async function scanFolder(
           now,
           result,
           folderPath,
-          false
+          false,
+          readHikari
         );
         if (seriesId) touchedSeries.add(seriesId);
       } catch (e) {
@@ -379,15 +390,22 @@ export async function syncSeriesImages(seriesId: string): Promise<ScanResult> {
   if (!series || !["manga", "webtoon", "photo"].includes(series.mediaType)) {
     return result;
   }
-  if (series.manualGroup) return result;
-
   const items = db
-    .select({ path: schema.mediaItems.path, sortOrder: schema.mediaItems.sortOrder })
+    .select({ id: schema.mediaItems.id, path: schema.mediaItems.path, sortOrder: schema.mediaItems.sortOrder })
     .from(schema.mediaItems)
     .where(eq(schema.mediaItems.seriesId, seriesId))
     .all();
   if (items.length === 0) return result;
   if (!IMAGE_EXTS.has(getExt(items[0].path))) return result;
+  const readHikari = createHikariSourceReader();
+  const now = Date.now();
+  if (series.manualGroup) {
+    for (const item of items) {
+      if (importHikariSources(db, item.id, readHikari(item.path), now)) result.updated++;
+    }
+    result.scanned = items.length;
+    return result;
+  }
 
   let scanRoot = path.dirname(items[0].path);
   if (series.mediaType !== "photo") {
@@ -404,22 +422,25 @@ export async function syncSeriesImages(seriesId: string): Promise<ScanResult> {
     .sort(naturalCompare);
   result.scanned = files.length;
 
-  const knownPaths = new Set(
-    db.select({ path: schema.mediaItems.path }).from(schema.mediaItems).all().map((item) => item.path)
+  const knownPaths = new Map(
+    db.select({ id: schema.mediaItems.id, path: schema.mediaItems.path }).from(schema.mediaItems).all().map((item) => [item.path, item.id])
   );
-  const newFiles = files.filter((file) => !knownPaths.has(file));
-  if (newFiles.length === 0) return result;
 
-  const now = Date.now();
   let order = items.reduce((max, item) => Math.max(max, item.sortOrder), -1) + 1;
-  for (const filePath of newFiles) {
+  for (const filePath of files) {
     try {
+      const existingId = knownPaths.get(filePath);
+      if (existingId) {
+        if (importHikariSources(db, existingId, readHikari(filePath), now)) result.updated++;
+        continue;
+      }
       const stat = fs.statSync(filePath);
       const relativeDir = path.relative(scanRoot, path.dirname(filePath));
       const baseTitle = path.basename(filePath, path.extname(filePath));
+      const itemId = uuid();
       db.insert(schema.mediaItems)
         .values({
-          id: uuid(),
+          id: itemId,
           seriesId,
           title: relativeDir ? `${relativeDir} · ${baseTitle}` : baseTitle,
           path: filePath,
@@ -435,6 +456,7 @@ export async function syncSeriesImages(seriesId: string): Promise<ScanResult> {
           updatedAt: now,
         })
         .run();
+      importHikariSources(db, itemId, readHikari(filePath), now);
       result.added++;
     } catch (error) {
       result.errors.push(
@@ -453,7 +475,8 @@ async function upsertFileAsItem(
   now: number,
   result: ScanResult,
   libraryRoot?: string,
-  makeThumb = true
+  makeThumb = true,
+  readHikari = createHikariSourceReader()
 ): Promise<string | null> {
   const existing = db
     .select()
@@ -462,6 +485,7 @@ async function upsertFileAsItem(
     .get();
 
   if (existing) {
+    importHikariSources(db, existing.id, readHikari(filePath), now);
     result.updated++;
     if (makeThumb && !existing.thumbnailPath) {
       const thumb = await ensureItemThumbnail(existing.id, filePath);
@@ -516,6 +540,7 @@ async function upsertFileAsItem(
     })
     .run();
 
+  importHikariSources(db, itemId, readHikari(filePath), now);
   result.added++;
   return seriesId;
 }
@@ -583,7 +608,9 @@ export async function refreshSeriesStats(
     .from(schema.series)
     .where(eq(schema.series.id, seriesId))
     .get();
-  const seriesThumb = isVideoSeries
+  const seriesThumb = existingSeries?.thumbnailPath && fs.existsSync(existingSeries.thumbnailPath)
+    ? existingSeries.thumbnailPath
+    : isVideoSeries
     ? existingSeries?.thumbnailPath ?? null
     : await ensureSeriesThumbnail(seriesId, sourceForThumb);
 

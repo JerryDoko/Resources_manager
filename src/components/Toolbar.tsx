@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   Search,
   Filter,
-  Star,
+  ChevronDown,
   ArrowUpDown,
   Play,
   RotateCcw,
@@ -16,6 +16,8 @@ import { useLibrary } from "@/lib/store";
 import type { SortBy } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { NovelImportPanel } from "./NovelImportPanel";
+import { CategorizedTags } from "./CategorizedTags";
+import { groupTags } from "@/lib/tag-groups";
 
 const SORTS: { value: SortBy; label: string }[] = [
   { value: "title", label: "名称" },
@@ -48,7 +50,17 @@ export function Toolbar() {
   } = useLibrary();
   const [busy, setBusy] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [tagsOpen, setTagsOpen] = useState(false);
+  const [allTagsVisible, setAllTagsVisible] = useState(false);
+  const [tagSearch, setTagSearch] = useState("");
+  const tagPanelId = useId();
   const searchRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setTagsOpen(false);
+    setAllTagsVisible(false);
+    setTagSearch("");
+  }, [mediaType]);
 
   useEffect(() => {
     if (searchOpen) searchRef.current?.focus();
@@ -67,6 +79,8 @@ export function Toolbar() {
   };
 
   const selectedOrdered = series.filter((s) => selectedIds.has(s.id)).map((s) => s.id);
+  const visibleTags = tags.filter((tag) => tag.name.toLocaleLowerCase().includes(tagSearch.trim().toLocaleLowerCase()));
+  const hasMoreTags = groupTags(visibleTags).some((group) => group.tags.length > 5);
 
   const openContinuous = async () => {
     if (mediaType !== "photo" && mediaType !== "video") return;
@@ -214,12 +228,20 @@ export function Toolbar() {
         </div>
 
         <button
-          onClick={() => setTagMatch(tagMatch === "all" ? "any" : "all")}
-          className="flex items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-3 py-2.5 text-sm text-[var(--ink-muted)]"
-          title="标签匹配模式"
+          type="button"
+          onClick={() => {
+            setTagsOpen((open) => !open);
+            setAllTagsVisible(false);
+            setTagSearch("");
+          }}
+          aria-expanded={tagsOpen}
+          aria-controls={tagPanelId}
+          className="flex items-center gap-2 rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm text-[var(--ink-muted)]"
+          title="标签筛选"
         >
           <Filter className="h-4 w-4" />
-          标签: {tagMatch === "all" ? "全部匹配" : "任一匹配"}
+          标签{selectedTagIds.length > 0 ? ` · ${selectedTagIds.length}` : ""}
+          <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", tagsOpen && "rotate-180")} />
         </button>
 
         {selectedIds.size > 0 && (
@@ -260,27 +282,18 @@ export function Toolbar() {
         )}
       </div>
 
-      {tags.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <Star className="h-3.5 w-3.5 text-[var(--ink-faint)]" />
-          {tags.map((tag) => {
-            const active = selectedTagIds.includes(tag.id);
-            return (
-              <button
-                key={tag.id}
-                onClick={() => toggleTagId(tag.id)}
-                className={cn(
-                  "rounded-full px-3 py-1 text-xs transition",
-                  active
-                    ? "text-white shadow-sm"
-                    : "bg-white text-[var(--ink-muted)] border border-[var(--line)] hover:border-[var(--accent)]"
-                )}
-                style={active ? { backgroundColor: tag.color } : undefined}
-              >
-                {tag.name}
-              </button>
-            );
-          })}
+      {tagsOpen && (
+        <div id={tagPanelId} role="region" aria-label="标签筛选" className="space-y-3 border-t border-[var(--line)] pt-3" onKeyDown={(event) => { if (event.key === "Escape") setTagsOpen(false); }}>
+          <div className="flex flex-wrap items-center gap-2">
+            <input type="search" aria-label="搜索筛选标签" placeholder="搜索标签…" value={tagSearch} onChange={(event) => setTagSearch(event.target.value)} className="min-w-0 rounded-md border border-[var(--line)] bg-white px-2.5 py-1.5 text-xs outline-none focus:border-[var(--accent)]" />
+            <select aria-label="标签匹配模式" value={tagMatch} onChange={(event) => setTagMatch(event.target.value as "all" | "any")} className="rounded-md border border-[var(--line)] bg-white px-2 py-1.5 text-xs text-[var(--ink-muted)]">
+              <option value="any">任一匹配</option><option value="all">全部匹配</option>
+            </select>
+            {(hasMoreTags || allTagsVisible) && <button type="button" onClick={() => setAllTagsVisible((visible) => !visible)} className="text-xs text-[var(--accent)]">{allTagsVisible ? "收起标签" : "查看全部标签"}</button>}
+            {selectedTagIds.length > 0 && <button type="button" onClick={() => setSelectedTagIds([])} className="text-xs text-[var(--ink-muted)] underline">清除筛选</button>}
+          </div>
+          <CategorizedTags tags={visibleTags} selectedIds={selectedTagIds} onToggle={toggleTagId} expanded={allTagsVisible} onExpand={() => setAllTagsVisible(true)} />
+          {visibleTags.length === 0 && <p className="text-xs text-[var(--ink-faint)]">{tags.length ? "没有匹配的标签" : "暂无标签"}</p>}
         </div>
       )}
     </div>

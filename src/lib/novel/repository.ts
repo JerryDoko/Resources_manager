@@ -84,7 +84,7 @@ export async function getBook(profileId: string, itemId: string, encoding = "aut
   }
   return { itemId, profileId, title: item.title, storagePath:item.path, format: content.format, chapters: content.chapters.map(c => ({ id: c.id, title: c.title })), preferences: preferences(parseItemMetadata(item.metadata).novelPreferences), position, encoding: content.encoding };
 }
-export async function getChapter(profileId: string, itemId: string, chapterId: string, encoding = "auto") {
+export async function getChapter(profileId: string, itemId: string, chapterId: string, encoding = "auto"): Promise<Chapter> {
   novelItem(profileId,itemId);
   const row=withProfile(profileId,()=>getSqlite().prepare("SELECT * FROM novel_chapters WHERE item_id=? AND id=?").get(itemId,chapterId) as ChapterRow|undefined);
   if(row){

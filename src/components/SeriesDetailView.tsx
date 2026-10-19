@@ -22,6 +22,8 @@ import {
   FolderPlus,
   FolderInput,
   Search,
+  Pencil,
+  Plus,
   X,
 } from "lucide-react";
 import { useLibrary } from "@/lib/store";
@@ -38,6 +40,9 @@ import { openNovel } from "@/lib/novel/open-reader";
 import { NovelChapterList } from "./NovelChapterList";
 import { VideoItemThumbnail } from "@/components/VideoItemThumbnail";
 import { revealLocalFile } from "@/lib/reveal-file";
+import { HikariSourceDetails } from "@/components/HikariSourceDetails";
+import { CategorizedTags } from "@/components/CategorizedTags";
+import { groupTags } from "@/lib/tag-groups";
 
 function dirname(filePath: string) {
   const i = filePath.lastIndexOf("/");
@@ -201,6 +206,13 @@ export function SeriesDetailView({
   const [drag, setDrag] = useState<DragBox | null>(null);
   const [aiTagging, setAiTagging] = useState(false);
   const [aiTagMessage, setAiTagMessage] = useState<string | null>(null);
+  const [tagEditing, setTagEditing] = useState(false);
+  const [tagDraftIds, setTagDraftIds] = useState<string[]>([]);
+  const [tagSearch, setTagSearch] = useState("");
+  const [tagShowAll, setTagShowAll] = useState(false);
+  const [tagOptionsExpanded, setTagOptionsExpanded] = useState(false);
+  const [tagSaving, setTagSaving] = useState(false);
+  const [tagError, setTagError] = useState("");
   const [groupMode, setGroupMode] = useState<"create" | "move" | null>(null);
   const [groupName, setGroupName] = useState("");
   const [groupSearch, setGroupSearch] = useState("");
@@ -241,13 +253,14 @@ export function SeriesDetailView({
           signal: AbortSignal.timeout(30000),
         });
         const sync = await syncRes.json();
-        if (syncRes.ok && sync.added > 0) {
-          setAutoImportMessage(`已自动导入 ${sync.added} 张新图片`);
+        if (syncRes.ok && (sync.added > 0 || sync.updated > 0)) {
+          if (sync.added > 0) setAutoImportMessage(`已自动导入 ${sync.added} 张新图片`);
           const refreshed = await fetch(`/api/library/${seriesId}`, {
             signal: AbortSignal.timeout(10000),
           });
           if (refreshed.ok) setData((await refreshed.json()) as SeriesDetail);
           refresh();
+          refreshTags();
         }
       }
     } finally {
@@ -266,6 +279,9 @@ export function SeriesDetailView({
   }, [isActive]);
 
   useEffect(() => {
+    setTagEditing(false);
+    setTagShowAll(false);
+    setTagError("");
     setSelectedItemIds(new Set());
     setItemRatingFilter(0);
     setItemSortKey("name");
@@ -315,34 +331,63 @@ export function SeriesDetailView({
     refresh();
   };
 
-  const toggleTag = async (tagId: string) => {
+  const startTagEditing = () => {
     if (!data) return;
-    const has = data.tags.some((t) => t.id === tagId);
-    const next = has
-      ? data.tags.filter((t) => t.id !== tagId).map((t) => t.id)
-      : [...data.tags.map((t) => t.id), tagId];
-    const res = await fetch(`/api/library/${seriesId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tagIds: next }),
-      signal: AbortSignal.timeout(10000),
-    });
-    setData(await res.json());
-    refresh();
+    setTagDraftIds(data.tags.map((tag) => tag.id));
+    setTagSearch("");
+    setTagError("");
+    setTagOptionsExpanded(false);
+    setTagEditing(true);
   };
 
-  const createAndApplyTag = async () => {
-    const name = prompt("新标签名称");
+  const saveTagSelection = async () => {
+    if (tagSaving || aiTagging) return;
+    setTagSaving(true);
+    setTagError("");
+    try {
+      const res = await fetch(`/api/library/${seriesId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tagIds: tagDraftIds }),
+        signal: AbortSignal.timeout(10000),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "保存标签失败");
+      setData(json);
+      setTagEditing(false);
+      await refresh();
+    } catch (error) {
+      setTagError(error instanceof Error ? error.message : "保存标签失败");
+    } finally {
+      setTagSaving(false);
+    }
+  };
+
+  const createAndSelectTag = async () => {
+    const name = prompt("新标签名称")?.trim();
     if (!name) return;
-    const res = await fetch("/api/tags", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "create", name }),
-      signal: AbortSignal.timeout(10000),
-    });
-    const { tag } = await res.json();
-    await refreshTags();
-    if (tag) await toggleTag(tag.id);
+    setTagSaving(true);
+    setTagError("");
+    try {
+      let tag = tags.find((tag) => tag.name === name);
+      if (!tag) {
+        const res = await fetch("/api/tags", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "create", name }),
+          signal: AbortSignal.timeout(10000),
+        });
+        const json = await res.json();
+        if (!res.ok || !json.tag) throw new Error(json.error || "新建标签失败");
+        tag = json.tag;
+        await refreshTags();
+      }
+      if (tag) setTagDraftIds((ids) => [...new Set([...ids, tag.id])]);
+    } catch (error) {
+      setTagError(error instanceof Error ? error.message : "新建标签失败");
+    } finally {
+      setTagSaving(false);
+    }
   };
 
   const analyzeImageTags = async () => {
@@ -382,6 +427,7 @@ export function SeriesDetailView({
       setAiTagMessage(`已添加标签：${names.join("、")}`);
       await refreshTags();
       await load();
+      setTagEditing(false);
       refresh();
     } catch (error) {
       setAiTagMessage(error instanceof Error ? error.message : String(error));
@@ -973,6 +1019,7 @@ export function SeriesDetailView({
                         </div>
                       </dl>
                     </div>
+                    <HikariSourceDetails metadata={focusedItem.metadata} />
                     <div className="flex gap-2">
                       <button
                         type="button"
@@ -1101,60 +1148,42 @@ export function SeriesDetailView({
           </aside>
 
           <section className="min-w-0 space-y-6 animate-fade-up" style={{ animationDelay: "60ms" }}>
-            <div>
-              <div className="mb-2 flex items-center justify-between">
+            <div role="region" aria-label="资源标签">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-sm font-semibold">标签</h2>
                 <div className="flex items-center gap-2">
-                  {isImageSequence && data.items.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => void analyzeImageTags()}
-                      disabled={aiTagging}
-                      className="flex items-center gap-1 rounded-md border border-[var(--line)] bg-white px-2 py-1 text-xs text-[var(--accent)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
-                      title={focusedItemId ? "识别当前选中的图片" : "识别第一张图片"}
-                    >
-                      {aiTagging ? (
-                        <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Sparkles className="h-3.5 w-3.5" />
-                      )}
-                      AI 识图标签
-                    </button>
-                  )}
-                  <button
-                    onClick={createAndApplyTag}
-                    className="text-xs text-[var(--accent)] underline"
-                  >
-                    + 新建标签
-                  </button>
+                  {!tagEditing && <>
+                    {groupTags(data.tags).some((group) => group.tags.length > 5) && <button type="button" onClick={() => setTagShowAll((visible) => !visible)} className="text-xs text-[var(--accent)]">{tagShowAll ? "收起标签" : "查看全部标签"}</button>}
+                    <button type="button" onClick={startTagEditing} className="inline-flex items-center gap-1.5 rounded-md border border-[var(--line)] bg-white px-2 py-1.5 text-xs text-[var(--accent)] hover:bg-[var(--accent-soft)]"><Pencil className="h-3.5 w-3.5" />添加 / 更改标签</button>
+                  </>}
                 </div>
               </div>
               {aiTagMessage && (
                 <p className="mb-2 text-xs text-[var(--ink-muted)]">{aiTagMessage}</p>
               )}
-              <div className="flex flex-wrap gap-2">
-                {tags.map((tag) => {
-                  const active = data.tags.some((t) => t.id === tag.id);
-                  return (
-                    <button
-                      key={tag.id}
-                      onClick={() => toggleTag(tag.id)}
-                      className={cn(
-                        "rounded-full px-3 py-1 text-xs transition",
-                        active
-                          ? "text-white"
-                          : "border border-[var(--line)] bg-white text-[var(--ink-muted)]"
-                      )}
-                      style={active ? { backgroundColor: tag.color } : undefined}
-                    >
-                      {tag.name}
-                    </button>
-                  );
-                })}
-                {tags.length === 0 && (
-                  <span className="text-xs text-[var(--ink-faint)]">暂无标签</span>
-                )}
-              </div>
+              {tagEditing ? (
+                <div role="region" aria-label="编辑资源标签" className="space-y-3 border-y border-[var(--line)] py-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input type="search" aria-label="搜索可选标签" placeholder="搜索标签…" value={tagSearch} onChange={(event) => setTagSearch(event.target.value)} disabled={tagSaving || aiTagging} className="min-w-0 rounded-md border border-[var(--line)] bg-white px-2.5 py-1.5 text-xs outline-none focus:border-[var(--accent)]" />
+                    <span className="text-xs text-[var(--ink-muted)]">已选 {tagDraftIds.length}</span>
+                    <button type="button" onClick={() => setTagOptionsExpanded((expanded) => !expanded)} className="text-xs text-[var(--accent)]">{tagOptionsExpanded ? "收起可选标签" : "查看全部可选标签"}</button>
+                    <button type="button" onClick={() => void createAndSelectTag()} disabled={tagSaving || aiTagging} className="inline-flex items-center gap-1 text-xs text-[var(--accent)] disabled:opacity-50"><Plus className="h-3.5 w-3.5" />新建标签</button>
+                  </div>
+                  <CategorizedTags tags={tags.filter((tag) => tag.name.toLocaleLowerCase().includes(tagSearch.trim().toLocaleLowerCase()))} expanded={tagOptionsExpanded} onExpand={() => setTagOptionsExpanded(true)} selectedIds={tagDraftIds} disabled={tagSaving || aiTagging} onToggle={(id) => setTagDraftIds((ids) => ids.includes(id) ? ids.filter((value) => value !== id) : [...ids, id])} />
+                  {!tags.some((tag) => tag.name.toLocaleLowerCase().includes(tagSearch.trim().toLocaleLowerCase())) && <p className="text-xs text-[var(--ink-faint)]">没有匹配的标签</p>}
+                  {tagError && <p role="alert" className="text-xs text-red-600">{tagError}</p>}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button type="button" onClick={() => void saveTagSelection()} disabled={tagSaving || aiTagging} className="inline-flex items-center gap-1 rounded-md bg-[var(--accent)] px-2.5 py-1.5 text-xs text-white disabled:opacity-50">{tagSaving ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}保存标签</button>
+                    <button type="button" onClick={() => { setTagEditing(false); setTagError(""); }} disabled={tagSaving || aiTagging} className="rounded-md border border-[var(--line)] bg-white px-2.5 py-1.5 text-xs text-[var(--ink-muted)] disabled:opacity-50">取消</button>
+                    {isImageSequence && data.items.length > 0 && <button type="button" onClick={() => void analyzeImageTags()} disabled={aiTagging || tagSaving || tagDraftIds.length !== data.tags.length || tagDraftIds.some((id) => !data.tags.some((tag) => tag.id === id))} title="识别并添加标签；有手动更改时请先保存" className="ml-auto inline-flex items-center gap-1 rounded-md border border-[var(--line)] bg-white px-2 py-1.5 text-xs text-[var(--accent)] disabled:opacity-50">{aiTagging ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}AI 识图标签</button>}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <CategorizedTags tags={data.tags} expanded={tagShowAll} onExpand={() => setTagShowAll(true)} />
+                  {groupTags(data.tags).length === 0 && <p className="text-xs text-[var(--ink-faint)]">暂无标签</p>}
+                </>
+              )}
             </div>
 
             {data.mediaType==="novel"&&data.items.length===1&&!/\.pdf$/i.test(data.items[0].path)?<NovelChapterList itemId={data.items[0].id} title={data.items[0].title} onCount={setNovelChapterCount}/>:<div>
